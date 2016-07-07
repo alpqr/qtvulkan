@@ -251,8 +251,12 @@ bool QVulkanRenderLoopPrivate::eventFilter(QObject *, QEvent *event)
         }
     } else if (event->type() == QEvent::UpdateRequest) {
         if (m_inited && m_window->isExposed()) {
-            if (beginFrame())
-                renderFrame();
+            if (!m_frameActive) {
+                if (beginFrame())
+                    renderFrame();
+            } else {
+                update();
+            }
         }
     }
 
@@ -789,6 +793,7 @@ void QVulkanRenderLoopPrivate::recreateSwapChain()
     m_currentSwapChainBuffer = 0;
     m_currentFrame = 0;
 
+    m_frameActive = false;
     m_frameCmdBufRecording[m_currentFrame] = false;
     ensureFrameCmdBuf(m_currentFrame, 0);
 
@@ -933,6 +938,9 @@ QElapsedTimer t;
 
 bool QVulkanRenderLoopPrivate::beginFrame()
 {
+    Q_ASSERT(!m_frameActive);
+    m_frameActive = true;
+
     if (m_frameFenceActive[m_currentFrame]) {
         if (Q_UNLIKELY(debug_render()))
             qDebug("wait fence %p", m_frameFence[m_currentFrame]);
@@ -1000,6 +1008,9 @@ void QVulkanRenderLoopPrivate::submitFrameCmdBuf(VkSemaphore waitSem, VkSemaphor
 
 void QVulkanRenderLoopPrivate::endFrame()
 {
+    Q_ASSERT(m_frameActive);
+    m_frameActive = false;
+
     int subIndex = 0;
     if (m_worker) {
         subIndex = 1;
@@ -1041,6 +1052,8 @@ void QVulkanRenderLoopPrivate::endFrame()
 
 void QVulkanRenderLoopPrivate::renderFrame()
 {
+    Q_ASSERT(m_frameActive);
+
     if (m_worker) {
         Q_ASSERT(!m_frameCmdBufRecording[m_currentFrame]);
         m_worker->queueFrame(m_currentFrame, m_vkQueue, m_workerWaitSem[m_currentFrame], m_workerSignalSem[m_currentFrame]);

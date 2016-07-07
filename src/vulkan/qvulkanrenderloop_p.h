@@ -118,6 +118,7 @@ public:
     VkImage m_ds;
     VkImageView m_dsView;
 
+    bool m_frameActive;
     VkSemaphore m_acquireSem[MAX_FRAMES_IN_FLIGHT];
     VkSemaphore m_renderSem[MAX_FRAMES_IN_FLIGHT];
     VkSemaphore m_workerWaitSem[MAX_FRAMES_IN_FLIGHT];

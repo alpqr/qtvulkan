@@ -44,7 +44,7 @@
 #endif
 
 #define VK_NO_PROTOTYPES
-#include <vulkan.h>
+#include <vulkan/vulkan.h>
 
 QT_BEGIN_NAMESPACE
 

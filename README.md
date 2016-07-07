@@ -13,8 +13,9 @@ pretty complete and stable already.
 This is a real Qt module. Build with qmake -r and make install. Applications
 can then simply do QT += vulkan in their .pro files.
 
-When building against a Vulkan SDK where the headers are not available in the default search paths,
-run 'qmake -r VULKAN_INCLUDE_PATH=c:/VulkanSDK/1.0.17.0/include/vulkan' to specify the location of vulkan.h
+When building against a Vulkan SDK where the headers are not available in the
+default search paths, do something like 'qmake -r VULKAN_INCLUDE_PATH=c:/VulkanSDK/1.0.17.0/include'
+to specify the location of the Vulkan headers.
 
 ==================================
 

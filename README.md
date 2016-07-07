@@ -4,6 +4,10 @@ The goal is to experiment with basic Vulkan enablers, focusing mainly on
 getting Vulkan-rendered content into a QWindow, in order to have a more clear
 view on what kind of (minimal) enablers could be added in Qt 5.9 and beyond.
 
+Do not expect to see fancy demos here - there is no actual geometry rendering
+in the examples yet, apart from clearing. However, QVulkanRenderLoop itself is
+pretty complete and stable already.
+
 ==================================
 
 This is a real Qt module. Build with qmake -r and make install. Applications
@@ -14,17 +18,14 @@ run 'qmake -r VULKAN_INCLUDE_PATH=c:/VulkanSDK/1.0.17.0/include/vulkan' to speci
 
 ==================================
 
-There is no actual rendering in the examples yet, apart from clearing. However,
-QVulkanRenderLoop itself is pretty complete and stable already.
-
-To be as portable as possible, all functions are resolved dynamically, either
-via QLibrary or the device/instance-level getProcAddr, so no libs are needed at
-link time.
-
 The main goal here is to demonstrate the model where the submission/present
 thread gets throttled based on the vsync, while allowing multiple frames in
 flight without pipeline stalls. (i.e. something that is missing from the
 majority of "tutorials" out there)
+
+To be as portable as possible, all Vulkan functions are resolved dynamically,
+either via QLibrary or the device/instance-level getProcAddr, so no libs are
+needed at link time.
 
 Instead of the traditional QGLWidget, QOpenGLWindow, etc. model (i.e. paintGL)
 we use a QVulkanRenderLoop that gets attached to a QWindow, and gets in turn a

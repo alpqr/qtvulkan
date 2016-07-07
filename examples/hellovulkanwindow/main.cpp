@@ -126,7 +126,7 @@ void Worker::queueFrame(int frame, VkQueue queue, VkSemaphore waitSem, VkSemapho
 
     // All command buffer have been submitted with correct wait/signal
     // settings. Emit the Qt signal to indicate we are done. We could also have
-    // gone async, spawn some threads, and so on. All that matters it to emit
+    // gone async, spawn some threads, and so on. All that matters is to emit
     // queued() at some point.
     emit queued();
 

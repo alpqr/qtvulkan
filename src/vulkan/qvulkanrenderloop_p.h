@@ -85,8 +85,8 @@ public:
                          VkAccessFlags srcAccessMask, VkAccessFlags dstAccessMask, bool ds = false);
 
     QWindow *m_window;
-    uint32_t m_framesInFlight;
     QVulkanRenderLoop::Flags m_flags;
+    int m_framesInFlight;
     bool m_inited = false;
     QVulkanFunctions *f;
 
@@ -109,8 +109,8 @@ public:
     VkSwapchainKHR m_swapChain = VK_NULL_HANDLE;
     uint32_t m_swapChainBufferCount = 0;
 
-    static const uint32_t MAX_SWAPCHAIN_BUFFERS = 3;
-    static const uint32_t MAX_FRAMES_IN_FLIGHT = 3;
+    static const int MAX_SWAPCHAIN_BUFFERS = 3;
+    static const int MAX_FRAMES_IN_FLIGHT = 3;
 
     VkImage m_swapChainImages[MAX_SWAPCHAIN_BUFFERS];
     VkImageView m_swapChainImageViews[MAX_SWAPCHAIN_BUFFERS];

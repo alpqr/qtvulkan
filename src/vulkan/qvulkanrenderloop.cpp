@@ -40,6 +40,7 @@
 #include <QVector>
 #include <QCoreApplication>
 #include <QDebug>
+#include <QElapsedTimer>
 #include <QVulkanFunctions>
 
 QT_BEGIN_NAMESPACE
@@ -503,7 +504,7 @@ void QVulkanRenderLoopPrivate::createDeviceAndSurface()
     f->vkGetPhysicalDeviceQueueFamilyProperties(m_vkPhysDev, &queueCount, nullptr);
     QVector<VkQueueFamilyProperties> queueFamilyProps(queueCount);
     f->vkGetPhysicalDeviceQueueFamilyProperties(m_vkPhysDev, &queueCount, queueFamilyProps.data());
-    uint32_t gfxQueueFamilyIdx = -1;
+    int gfxQueueFamilyIdx = -1;
     for (int i = 0; i < queueFamilyProps.count(); ++i) {
         if (Q_UNLIKELY(debug_render()))
             qDebug("queue family %d: flags=0x%x count=%d", i, queueFamilyProps[i].queueFlags, queueFamilyProps[i].queueCount);
@@ -704,7 +705,7 @@ void QVulkanRenderLoopPrivate::recreateSwapChain()
     if (surfaceCaps.maxImageCount)
         reqBufferCount = qBound(surfaceCaps.minImageCount, reqBufferCount, surfaceCaps.maxImageCount);
     Q_ASSERT(surfaceCaps.minImageCount <= MAX_SWAPCHAIN_BUFFERS);
-    reqBufferCount = qMin(reqBufferCount, MAX_SWAPCHAIN_BUFFERS);
+    reqBufferCount = qMin<uint32_t>(reqBufferCount, MAX_SWAPCHAIN_BUFFERS);
 
     VkExtent2D bufferSize = surfaceCaps.currentExtent;
     if (bufferSize.width == uint32_t(-1))
@@ -803,7 +804,7 @@ void QVulkanRenderLoopPrivate::recreateSwapChain()
                         0, 0);
     }
 
-    for (uint32_t i = 0; i < m_framesInFlight; ++i) {
+    for (int i = 0; i < m_framesInFlight; ++i) {
         m_frameFenceActive[i] = false;
         if (m_frameFence[i] == VK_NULL_HANDLE) {
             VkFenceCreateInfo fenceInfo = {

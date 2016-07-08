@@ -95,13 +95,8 @@ Windows has been tested in practice. Other WSIs will get added later on.
 Note: NVIDIA drivers older than 368 are not recommended. For example, 365 was
 unable to provide vsync and was always running unthrottled.
 
-Initialization and teardown is currently tied to expose/obscure events. When
-these happen is windowing system dependent (f.ex. Windows obscures on minimize
-only). Releasing all resources on obscure is not necessarily ideal for real
-apps but will do for demo purposes.
-
 TODO:
   1. other WSIs
   2. issue some real draw calls in the example
-  3. test dedicated worker threads in the example
-  4. play a bit with shaders (SPIR-V, VK_NV_glsl_shader, etc.)
+  3. play a bit with shaders (SPIR-V, VK_NV_glsl_shader, etc.)
+  4. more examples, more threads, more everything

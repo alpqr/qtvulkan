@@ -434,8 +434,11 @@ void QVulkanRenderThread::obscure()
     if (!d->m_inited)
         return;
 
-    d->f->vkDeviceWaitIdle(d->m_vkDev);
-    d->cleanup();
+    if (!d->m_flags.testFlag(QVulkanRenderLoop::DontReleaseOnObscure)) {
+        d->f->vkDeviceWaitIdle(d->m_vkDev);
+        d->cleanup();
+    }
+
     m_pendingUpdate = false;
 }
 

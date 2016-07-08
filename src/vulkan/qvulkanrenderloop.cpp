@@ -42,6 +42,8 @@
 #include <QGuiApplication>
 #include <QDebug>
 #include <QElapsedTimer>
+#include <QExposeEvent>
+#include <QResizeEvent>
 #include <QVulkanFunctions>
 
 #ifdef Q_OS_LINUX

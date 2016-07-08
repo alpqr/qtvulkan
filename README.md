@@ -56,7 +56,8 @@ public:
     enum Flag {
         EnableValidation = 0x01,
         Unthrottled = 0x02,
-        UpdateContinuously = 0x04
+        UpdateContinuously = 0x04,
+        DontReleaseOnObscure = 0x08
     };
     Q_DECLARE_FLAGS(Flags, Flag)
 

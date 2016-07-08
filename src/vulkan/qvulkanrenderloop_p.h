@@ -62,7 +62,6 @@ public:
 
     bool eventFilter(QObject *watched, QEvent *event) override;
     void update();
-    QWindow *m_window;
 
     void init();
     void cleanup();
@@ -83,16 +82,24 @@ public:
                          VkImageLayout oldLayout, VkImageLayout newLayout,
                          VkAccessFlags srcAccessMask, VkAccessFlags dstAccessMask, bool ds = false);
 
+public Q_SLOTS:
+    void onWorkerDestroyed(QObject *obj);
+    void onQueued();
+
+public:
+    QWindow *m_window;
+    QVulkanRenderLoop::Flags m_flags = 0;
+    int m_framesInFlight = 1;
+    QVulkanFrameWorker *m_worker = nullptr;
+    QVulkanFunctions *f;
+
     WId m_winId;
 #ifdef Q_OS_LINUX
     xcb_connection_t *m_xcbConnection;
     xcb_visualid_t m_xcbVisualId;
 #endif
     QSize m_windowSize;
-    QVulkanRenderLoop::Flags m_flags;
-    int m_framesInFlight;
     bool m_inited = false;
-    QVulkanFunctions *f;
 
     PFN_vkCreateDebugReportCallbackEXT vkCreateDebugReportCallbackEXT;
     PFN_vkDestroyDebugReportCallbackEXT vkDestroyDebugReportCallbackEXT;
@@ -154,12 +161,6 @@ public:
     PFN_vkGetSwapchainImagesKHR vkGetSwapchainImagesKHR;
     PFN_vkAcquireNextImageKHR vkAcquireNextImageKHR;
     PFN_vkQueuePresentKHR vkQueuePresentKHR;
-
-    QVulkanFrameWorker *m_worker = nullptr;
-
-public slots:
-    void onDestroyed(QObject *obj);
-    void onQueued();
 };
 
 QT_END_NAMESPACE

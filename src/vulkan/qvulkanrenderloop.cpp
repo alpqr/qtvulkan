@@ -152,7 +152,7 @@ void QVulkanRenderLoop::setWorker(QVulkanFrameWorker *worker)
     d->m_worker = worker;
 
     if (d->m_worker) {
-        QObject::connect(d->m_worker, SIGNAL(destroyed(QObject*)), d, SLOT(onDestroyed(QObject*)));
+        QObject::connect(d->m_worker, SIGNAL(destroyed(QObject*)), d, SLOT(onWorkerDestroyed(QObject*)));
         QObject::connect(d->m_worker, SIGNAL(queued()), d, SLOT(onQueued()));
     }
 }
@@ -219,14 +219,12 @@ VkFormat QVulkanRenderLoop::depthStencilFormat() const
 
 QVulkanRenderLoopPrivate::QVulkanRenderLoopPrivate(QWindow *window)
     : m_window(window),
-      m_flags(0),
-      m_framesInFlight(1),
       f(QVulkanFunctions::instance())
 {
     window->installEventFilter(this);
 }
 
-void QVulkanRenderLoopPrivate::onDestroyed(QObject *obj)
+void QVulkanRenderLoopPrivate::onWorkerDestroyed(QObject *obj)
 {
     if (m_worker == obj)
         m_worker = nullptr;
@@ -255,14 +253,24 @@ bool QVulkanRenderLoopPrivate::eventFilter(QObject *watched, QEvent *event)
                 init();
             update();
         } else if (m_inited) {
-            f->vkDeviceWaitIdle(m_vkDev);
-            cleanup();
+            if (!m_frameActive) {
+                f->vkDeviceWaitIdle(m_vkDev);
+                cleanup();
+            } else {
+                QExposeEvent *ex = static_cast<QExposeEvent *>(event);
+                QCoreApplication::postEvent(window, new QExposeEvent(ex->region()));
+            }
         }
     } else if (event->type() == QEvent::Resize) {
         if (m_inited && window->isExposed()) {
-            f->vkDeviceWaitIdle(m_vkDev);
-            m_windowSize = window->size();
-            recreateSwapChain();
+            if (!m_frameActive) {
+                f->vkDeviceWaitIdle(m_vkDev);
+                m_windowSize = window->size();
+                recreateSwapChain();
+            } else {
+                QResizeEvent *re = static_cast<QResizeEvent *>(event);
+                QCoreApplication::postEvent(window, new QResizeEvent(re->size(), re->oldSize()));
+            }
         }
     } else if (event->type() == QEvent::UpdateRequest) {
         if (m_inited && window->isExposed()) {

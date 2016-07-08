@@ -30,9 +30,11 @@ needed at link time.
 
 Instead of the traditional QGLWidget, QOpenGLWindow, etc. model (i.e. paintGL)
 we use a QVulkanRenderLoop that gets attached to a QWindow, and gets in turn a
-QVulkanFrameWorker attached to it. This interface is asynchronous and the
-worker can submit one or more command buffers potentially from separate worker
-threads if it wants to - quite unlike Qt's traditional OpenGL world.
+QVulkanFrameWorker attached to it. The render loop runs its own dedicated
+thread and this is the thread the worker's functions are invoked on. This is
+similar the Qt Quick scenegraph's threaded render loop - except that the
+interface here is asynchronous and the worker can submit one or more command
+buffers from additional, separate worker threads if it wants to.
 
 The number of frames prepared without blocking (1, 2, or 3) can be decided by
 the application. The standard validation layer can be requested by setting the

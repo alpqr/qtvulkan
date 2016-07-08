@@ -1,4 +1,4 @@
-This is the Qt Vulkan test bed.
+This is the Qt Vulkan test bed - ** now with 100% more threads **
 
 The goal is to experiment with basic Vulkan enablers, focusing mainly on
 getting Vulkan-rendered content into a QWindow, in order to have a more clear
@@ -19,7 +19,7 @@ to specify the location of the Vulkan headers.
 
 ==================================
 
-The main goal here is to demonstrate the model where the dedicated
+The main goal here is to demonstrate the model where the *dedicated*
 submission/present thread gets throttled based on the vsync, while allowing
 multiple frames in flight without pipeline stalls. (i.e. something that is
 missing from the majority of "tutorials" out there)
@@ -30,11 +30,11 @@ needed at link time.
 
 Instead of the traditional QGLWidget, QOpenGLWindow, etc. model (i.e. paintGL)
 we use a QVulkanRenderLoop that gets attached to a QWindow, and gets in turn a
-QVulkanFrameWorker attached to it. The render loop runs its own dedicated
-thread and this is the thread the worker's functions are invoked on. This is
-similar the Qt Quick scenegraph's threaded render loop - except that the
-interface here is asynchronous and the worker can submit one or more command
-buffers from additional, separate worker threads if it wants to.
+QVulkanFrameWorker attached to it. The render loop runs its own dedicated thread
+and this is the thread the worker's functions are invoked on. This is similar
+the Qt Quick scenegraph's threaded render loop - except that the interface here
+is asynchronous and the worker can also submit one or more command buffers from
+additional worker threads if it wants to.
 
 The number of frames prepared without blocking (1, 2, or 3) can be decided by
 the application. The standard validation layer can be requested by setting the
@@ -45,6 +45,7 @@ self-explanatory:
 class Q_VULKAN_EXPORT QVulkanFrameWorker
 {
 public:
+    virtual ~QVulkanFrameWorker() { }
     virtual void init() = 0;
     virtual void cleanup() = 0;
     virtual void queueFrame(int frame, VkQueue queue, VkSemaphore waitSem, VkSemaphore signalSem) = 0;
@@ -64,28 +65,32 @@ public:
     QVulkanRenderLoop(QWindow *window);
     ~QVulkanRenderLoop();
 
-    QVulkanFunctions *functions();
-
     void setFlags(Flags flags);
     void setFramesInFlight(int frameCount);
     void setWorker(QVulkanFrameWorker *worker);
 
     void update();
 
-    void frameQueued();
-
     // for QVulkanFrameWorker
+    void frameQueued();
+    QVulkanFunctions *functions();
+
     VkInstance instance() const;
     VkPhysicalDevice physicalDevice() const;
     VkDevice device() const;
     VkCommandPool commandPool() const;
     uint32_t hostVisibleMemoryIndex() const;
+
     VkImage currentSwapChainImage() const;
     VkImageView currentSwapChainImageView() const;
     VkFormat swapChainFormat() const;
     VkImage depthStencilImage() const;
     VkImageView depthStencilImageView() const;
     VkFormat depthStencilFormat() const;
+
+private:
+    QVulkanRenderLoopPrivate *d;
+};
 ```
 
 ================================

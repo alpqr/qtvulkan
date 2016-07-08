@@ -69,22 +69,22 @@ public:
     QVulkanRenderLoop(QWindow *window);
     ~QVulkanRenderLoop();
 
-    QVulkanFunctions *functions();
-
     void setFlags(Flags flags);
     void setFramesInFlight(int frameCount);
     void setWorker(QVulkanFrameWorker *worker);
 
     void update();
 
-    void frameQueued();
-
     // for QVulkanFrameWorker
+    void frameQueued();
+    QVulkanFunctions *functions();
+
     VkInstance instance() const;
     VkPhysicalDevice physicalDevice() const;
     VkDevice device() const;
     VkCommandPool commandPool() const;
     uint32_t hostVisibleMemoryIndex() const;
+
     VkImage currentSwapChainImage() const;
     VkImageView currentSwapChainImageView() const;
     VkFormat swapChainFormat() const;

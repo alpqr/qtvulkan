@@ -46,17 +46,12 @@ QT_BEGIN_NAMESPACE
 class QVulkanRenderLoopPrivate;
 class QVulkanFunctions;
 
-class Q_VULKAN_EXPORT QVulkanFrameWorker : public QObject
+class Q_VULKAN_EXPORT QVulkanFrameWorker
 {
-    Q_OBJECT
-
 public:
     virtual void init() = 0;
     virtual void cleanup() = 0;
     virtual void queueFrame(int frame, VkQueue queue, VkSemaphore waitSem, VkSemaphore signalSem) = 0;
-
-Q_SIGNALS:
-    void queued();
 };
 
 class Q_VULKAN_EXPORT QVulkanRenderLoop
@@ -76,10 +71,11 @@ public:
 
     void setFlags(Flags flags);
     void setFramesInFlight(int frameCount);
-
     void setWorker(QVulkanFrameWorker *worker);
 
     void update();
+
+    void frameQueued();
 
     // for QVulkanFrameWorker
     VkInstance instance() const;

@@ -19,10 +19,10 @@ to specify the location of the Vulkan headers.
 
 ==================================
 
-The main goal here is to demonstrate the model where the submission/present
-thread gets throttled based on the vsync, while allowing multiple frames in
-flight without pipeline stalls. (i.e. something that is missing from the
-majority of "tutorials" out there)
+The main goal here is to demonstrate the model where the dedicated
+submission/present thread gets throttled based on the vsync, while allowing
+multiple frames in flight without pipeline stalls. (i.e. something that is
+missing from the majority of "tutorials" out there)
 
 To be as portable as possible, all Vulkan functions are resolved dynamically,
 either via QLibrary or the device/instance-level getProcAddr, so no libs are
@@ -30,9 +30,9 @@ needed at link time.
 
 Instead of the traditional QGLWidget, QOpenGLWindow, etc. model (i.e. paintGL)
 we use a QVulkanRenderLoop that gets attached to a QWindow, and gets in turn a
-QVulkanFrameWorker attached to it. This interface is asynchronous and the worker
-can submit one or more command buffers potentially from separate worker threads
-if it wants to.
+QVulkanFrameWorker attached to it. This interface is asynchronous and the
+worker can submit one or more command buffers potentially from separate worker
+threads if it wants to - quite unlike Qt's traditional OpenGL world.
 
 The number of frames prepared without blocking (1, 2, or 3) can be decided by
 the application. The standard validation layer can be requested by setting the
@@ -40,17 +40,12 @@ appropriate flag. Without further ado, here's the API, it should be
 self-explanatory:
 
 ```
-class Q_VULKAN_EXPORT QVulkanFrameWorker : public QObject
+class Q_VULKAN_EXPORT QVulkanFrameWorker
 {
-    Q_OBJECT
-
 public:
     virtual void init() = 0;
     virtual void cleanup() = 0;
     virtual void queueFrame(int frame, VkQueue queue, VkSemaphore waitSem, VkSemaphore signalSem) = 0;
-
-Q_SIGNALS:
-    void queued();
 };
 
 class Q_VULKAN_EXPORT QVulkanRenderLoop
@@ -70,10 +65,11 @@ public:
 
     void setFlags(Flags flags);
     void setFramesInFlight(int frameCount);
-
     void setWorker(QVulkanFrameWorker *worker);
 
     void update();
+
+    void frameQueued();
 
     // for QVulkanFrameWorker
     VkInstance instance() const;
@@ -106,5 +102,4 @@ TODO:
   1. other WSIs
   2. issue some real draw calls in the example
   3. test dedicated worker threads in the example
-  4. explore threading further: what if we want the QVulkanRenderLoop to live on a dedicate thread which it can throttle without affecting the main/gui thread?
-  5. play a bit with shaders (SPIR-V, VK_NV_glsl_shader, etc.)
+  4. play a bit with shaders (SPIR-V, VK_NV_glsl_shader, etc.)

@@ -40,6 +40,8 @@
 
 #include <QGuiApplication>
 #include <QWindow>
+#include <QThread>
+#include <QThreadPool>
 #include <QVulkanRenderLoop>
 #include <QVulkanFunctions>
 
@@ -58,6 +60,8 @@ private:
     QVulkanRenderLoop *m_renderLoop;
 
     VkCommandBuffer m_cb[FRAMES_IN_FLIGHT];
+
+    friend class AsyncFrameTest;
 };
 
 void Worker::init()
@@ -77,9 +81,20 @@ void Worker::cleanup()
     }
 }
 
+//#define TEST_ASYNC
+#ifdef TEST_ASYNC
+class AsyncFrameTest : public QRunnable
+{
+public:
+    AsyncFrameTest(Worker *w) : m_w(w) { }
+    void run() override { QThread::msleep(20); m_w->m_renderLoop->frameQueued(); }
+    Worker *m_w;
+};
+#endif
+
 void Worker::queueFrame(int frame, VkQueue queue, VkSemaphore waitSem, VkSemaphore signalSem)
 {
-    qDebug("worker queueFrame %d", frame); // frame = 0 .. frames_in_flight - 1
+    qDebug("worker queueFrame %d on thread %p", frame, QThread::currentThread()); // frame = 0 .. frames_in_flight - 1
 
     // ### just clear to red for now
 
@@ -124,11 +139,20 @@ void Worker::queueFrame(int frame, VkQueue queue, VkSemaphore waitSem, VkSemapho
     if (err != VK_SUCCESS)
         qFatal("Failed to submit to command queue: %d", err);
 
+#ifndef TEST_ASYNC
     // All command buffer have been submitted with correct wait/signal
-    // settings. Emit the Qt signal to indicate we are done. We could also have
-    // gone async, spawn some threads, and so on. All that matters is to emit
-    // queued() at some point.
-    emit queued();
+    // settings. Notify the renderloop that we are done. We could also have
+    // gone async, spawn some threads, and so on. All that matters is to call
+    // frameQueued (on any thread) at some point.
+    m_renderLoop->frameQueued();
+#else
+    // Note that one thing we cannot do on this thread is to use timers or
+    // other stuff relying on the Qt event loop. This is because while the the
+    // thread spins the Qt loop between frames, it will now go to sleep until
+    // frameQueued() is called. However, nothing prevents us from spawning as
+    // many threads as we want.
+    QThreadPool::globalInstance()->start(new AsyncFrameTest(this));
+#endif
 
     // Could schedule updates manually if we did not have UpdateContinuously set:
     // m_renderLoop->update();
@@ -136,16 +160,12 @@ void Worker::queueFrame(int frame, VkQueue queue, VkSemaphore waitSem, VkSemapho
 
 int main(int argc, char **argv)
 {
-    // By default, when Unthrottled is not set, QVulkanRenderLoop::update() and
-    // UpdateContinuously work via QWindow::requestUpdate() which on most
-    // platforms is just a 5 ms timer. That is a bit too much, so change it to
-    // something lower.
-    qputenv("QT_QPA_UPDATE_IDLE_TIME", "0");
-
     // Let's report what is going on under the hood.
     qputenv("QVULKAN_DEBUG", "render");
 
     QGuiApplication app(argc, argv);
+
+    qDebug("Opening window. Main/gui thread is %p", QThread::currentThread());
 
     QWindow window;
     window.setSurfaceType(QSurface::OpenGLSurface);
@@ -158,7 +178,9 @@ int main(int argc, char **argv)
     rl.setFlags(QVulkanRenderLoop::UpdateContinuously | QVulkanRenderLoop::EnableValidation /* | QVulkanRenderLoop::Unthrottled */);
     rl.setFramesInFlight(FRAMES_IN_FLIGHT);
 
-    // Attach our worker to the Vulkan renderer.
+    // Attach our worker to the Vulkan renderer. Note that while the worker
+    // object lives on the main/gui thread, its functions will get invoked on
+    // the renderer's dedicated thread.
     Worker worker(&rl);
     rl.setWorker(&worker);
 

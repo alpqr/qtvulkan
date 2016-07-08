@@ -39,6 +39,9 @@
 
 #include "qvulkanrenderloop.h"
 #include <QObject>
+#include <QThread>
+#include <QMutex>
+#include <QWaitCondition>
 
 //
 //  W A R N I N G
@@ -53,15 +56,15 @@
 
 QT_BEGIN_NAMESPACE
 
+class QVulkanRenderThread;
+
 class QVulkanRenderLoopPrivate : public QObject
 {
-    Q_OBJECT
-
 public:
-    QVulkanRenderLoopPrivate(QWindow *window);
+    QVulkanRenderLoopPrivate(QVulkanRenderLoop *q_ptr, QWindow *window);
+    ~QVulkanRenderLoopPrivate();
 
     bool eventFilter(QObject *watched, QEvent *event) override;
-    void update();
 
     void init();
     void cleanup();
@@ -82,14 +85,11 @@ public:
                          VkImageLayout oldLayout, VkImageLayout newLayout,
                          VkAccessFlags srcAccessMask, VkAccessFlags dstAccessMask, bool ds = false);
 
-public Q_SLOTS:
-    void onWorkerDestroyed(QObject *obj);
-    void onQueued();
-
-public:
+    QVulkanRenderLoop *q;
     QWindow *m_window;
     QVulkanRenderLoop::Flags m_flags = 0;
     int m_framesInFlight = 1;
+    QVulkanRenderThread *m_thread = nullptr;
     QVulkanFrameWorker *m_worker = nullptr;
     QVulkanFunctions *f;
 
@@ -161,6 +161,95 @@ public:
     PFN_vkGetSwapchainImagesKHR vkGetSwapchainImagesKHR;
     PFN_vkAcquireNextImageKHR vkAcquireNextImageKHR;
     PFN_vkQueuePresentKHR vkQueuePresentKHR;
+};
+
+class QVulkanRenderThreadEventQueue : public QQueue<QEvent *>
+{
+public:
+    void addEvent(QEvent *e);
+    QEvent *takeEvent(bool wait);
+    bool hasMoreEvents();
+
+private:
+    QMutex m_mutex;
+    QWaitCondition m_condition;
+    bool m_waiting = false;
+};
+
+class QVulkanRenderThreadExposeEvent : public QEvent
+{
+public:
+    static const QEvent::Type Type = QEvent::Type(QEvent::User + 1);
+    QVulkanRenderThreadExposeEvent() : QEvent(Type) { }
+};
+
+class QVulkanRenderThreadObscureEvent : public QEvent
+{
+public:
+    static const QEvent::Type Type = QEvent::Type(QEvent::User + 2);
+    QVulkanRenderThreadObscureEvent() : QEvent(Type) { }
+};
+
+class QVulkanRenderThreadResizeEvent : public QEvent
+{
+public:
+    static const QEvent::Type Type = QEvent::Type(QEvent::User + 3);
+    QVulkanRenderThreadResizeEvent() : QEvent(Type) { }
+};
+
+class QVulkanRenderThreadUpdateEvent : public QEvent
+{
+public:
+    static const QEvent::Type Type = QEvent::Type(QEvent::User + 4);
+    QVulkanRenderThreadUpdateEvent() : QEvent(Type) { }
+};
+
+class QVulkanRenderThreadFrameQueuedEvent : public QEvent
+{
+public:
+    static const QEvent::Type Type = QEvent::Type(QEvent::User + 5);
+    QVulkanRenderThreadFrameQueuedEvent() : QEvent(Type) { }
+};
+
+class QVulkanRenderThreadDestroyEvent : public QEvent
+{
+public:
+    static const QEvent::Type Type = QEvent::Type(QEvent::User + 6);
+    QVulkanRenderThreadDestroyEvent() : QEvent(Type) { }
+};
+
+class QVulkanRenderThread : public QThread
+{
+public:
+    QVulkanRenderThread(QVulkanRenderLoopPrivate *d_ptr) : d(d_ptr) { }
+
+    void run() override;
+
+    void processEvents();
+    void processEventsAndWaitForMore();
+    void postEvent(QEvent *e);
+
+    QMutex *mutex() { return &m_mutex; }
+    QWaitCondition *waitCondition() { return &m_condition; }
+    void setActive() { m_active = true; }
+    void setUpdatePending();
+
+private:
+    void processEvent(QEvent *e);
+    void obscure();
+    void resize();
+
+    QVulkanRenderLoopPrivate *d;
+    QVulkanRenderThreadEventQueue m_eventQueue;
+    volatile bool m_active;
+    QMutex m_mutex;
+    QWaitCondition m_condition;
+    uint m_sleeping : 1;
+    uint m_stopEventProcessing : 1;
+    uint m_pendingUpdate : 1;
+    uint m_pendingObscure : 1;
+    uint m_pendingResize : 1;
+    uint m_pendingDestroy : 1;
 };
 
 QT_END_NAMESPACE

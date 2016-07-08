@@ -36,6 +36,7 @@
 
 #include "qvulkanrenderloop.h"
 #include "qvulkanrenderloop_p.h"
+#include <QVulkanFunctions>
 #include <qalgorithms.h>
 #include <QVector>
 #include <QCoreApplication>
@@ -44,7 +45,7 @@
 #include <QElapsedTimer>
 #include <QExposeEvent>
 #include <QResizeEvent>
-#include <QVulkanFunctions>
+#include <QQueue>
 
 #ifdef Q_OS_LINUX
 #include <qpa/qplatformnativeinterface.h>
@@ -95,9 +96,6 @@ static const uint32_t REQUESTED_SWAPCHAIN_BUFFERS = 2;
  */
 
 
-// TODO: what if we want the QVulkanRenderLoop to live on a dedicate thread which it can throttle without affecting the main/gui thread?
-
-
 #define DECLARE_DEBUG_VAR(variable) \
     static bool debug_ ## variable() \
     { static bool value = qgetenv("QVULKAN_DEBUG").contains(QT_STRINGIFY(variable)); return value; }
@@ -105,7 +103,7 @@ static const uint32_t REQUESTED_SWAPCHAIN_BUFFERS = 2;
 DECLARE_DEBUG_VAR(render)
 
 QVulkanRenderLoop::QVulkanRenderLoop(QWindow *window)
-    : d(new QVulkanRenderLoopPrivate(window))
+    : d(new QVulkanRenderLoopPrivate(this, window))
 {
 }
 
@@ -143,25 +141,43 @@ void QVulkanRenderLoop::setFramesInFlight(int frameCount)
 
 void QVulkanRenderLoop::setWorker(QVulkanFrameWorker *worker)
 {
+    if (d->m_inited) {
+        qWarning("Cannot change worker after rendering has started");
+        return;
+    }
     if (worker == d->m_worker)
         return;
-
-    if (d->m_worker) {
-        d->m_worker->disconnect(d, SIGNAL(destroyed(QObject*)));
-        d->m_worker->disconnect(d, SIGNAL(queued()));
-    }
-
     d->m_worker = worker;
-
-    if (d->m_worker) {
-        QObject::connect(d->m_worker, SIGNAL(destroyed(QObject*)), d, SLOT(onWorkerDestroyed(QObject*)));
-        QObject::connect(d->m_worker, SIGNAL(queued()), d, SLOT(onQueued()));
-    }
 }
 
 void QVulkanRenderLoop::update()
 {
-    d->update();
+    if (!d->m_inited)
+        return;
+
+    if (QThread::currentThread() == d->m_thread) {
+        d->m_thread->setUpdatePending();
+    } else {
+        d->m_thread->mutex()->lock();
+        d->m_thread->postEvent(new QVulkanRenderThreadUpdateEvent);
+        d->m_thread->waitCondition()->wait(d->m_thread->mutex());
+        d->m_thread->mutex()->unlock();
+    }
+}
+
+void QVulkanRenderLoop::frameQueued()
+{
+    if (!d->m_inited)
+        return;
+
+    if (QThread::currentThread() == d->m_thread) {
+        d->endFrame();
+    } else {
+        d->m_thread->mutex()->lock();
+        d->m_thread->postEvent(new QVulkanRenderThreadFrameQueuedEvent);
+        d->m_thread->waitCondition()->wait(d->m_thread->mutex());
+        d->m_thread->mutex()->unlock();
+    }
 }
 
 VkInstance QVulkanRenderLoop::instance() const
@@ -219,25 +235,24 @@ VkFormat QVulkanRenderLoop::depthStencilFormat() const
     return VK_FORMAT_D24_UNORM_S8_UINT;
 }
 
-QVulkanRenderLoopPrivate::QVulkanRenderLoopPrivate(QWindow *window)
-    : m_window(window),
+QVulkanRenderLoopPrivate::QVulkanRenderLoopPrivate(QVulkanRenderLoop *q_ptr, QWindow *window)
+    : q(q_ptr),
+      m_window(window),
       f(QVulkanFunctions::instance())
 {
     window->installEventFilter(this);
 }
 
-void QVulkanRenderLoopPrivate::onWorkerDestroyed(QObject *obj)
+QVulkanRenderLoopPrivate::~QVulkanRenderLoopPrivate()
 {
-    if (m_worker == obj)
-        m_worker = nullptr;
-}
-
-void QVulkanRenderLoopPrivate::update()
-{
-    if (!m_flags.testFlag(QVulkanRenderLoop::Unthrottled))
-        m_window->requestUpdate();
-    else
-        QCoreApplication::postEvent(m_window, new QEvent(QEvent::UpdateRequest));
+    if (m_thread) {
+        m_thread->mutex()->lock();
+        m_thread->postEvent(new QVulkanRenderThreadDestroyEvent);
+        m_thread->waitCondition()->wait(m_thread->mutex());
+        m_thread->mutex()->unlock();
+        m_thread->wait();
+        delete m_thread;
+    }
 }
 
 bool QVulkanRenderLoopPrivate::eventFilter(QObject *watched, QEvent *event)
@@ -245,47 +260,245 @@ bool QVulkanRenderLoopPrivate::eventFilter(QObject *watched, QEvent *event)
     QWindow *window = static_cast<QWindow *>(watched);
     if (event->type() == QEvent::Expose) {
         if (window->isExposed()) {
+            if (!m_thread) {
+                m_thread = new QVulkanRenderThread(this);
+                m_thread->setActive();
+                m_thread->start();
+            }
+            m_thread->mutex()->lock();
             m_winId = window->winId();
 #ifdef Q_OS_LINUX
             m_xcbConnection = static_cast<xcb_connection_t *>(qGuiApp->platformNativeInterface()->nativeResourceForIntegration(QByteArrayLiteral("connection")));
             m_xcbVisualId = QXcbWindowFunctions::visualId(window);
 #endif
             m_windowSize = window->size();
-            if (!m_inited)
-                init();
-            update();
+            m_thread->postEvent(new QVulkanRenderThreadExposeEvent);
+            m_thread->waitCondition()->wait(m_thread->mutex());
+            m_thread->mutex()->unlock();
         } else if (m_inited) {
-            if (!m_frameActive) {
-                f->vkDeviceWaitIdle(m_vkDev);
-                cleanup();
-            } else {
-                QExposeEvent *ex = static_cast<QExposeEvent *>(event);
-                QCoreApplication::postEvent(window, new QExposeEvent(ex->region()));
-            }
+            m_thread->mutex()->lock();
+            m_thread->postEvent(new QVulkanRenderThreadObscureEvent);
+            m_thread->waitCondition()->wait(m_thread->mutex());
+            m_thread->mutex()->unlock();
         }
     } else if (event->type() == QEvent::Resize) {
         if (m_inited && window->isExposed()) {
-            if (!m_frameActive) {
-                f->vkDeviceWaitIdle(m_vkDev);
-                m_windowSize = window->size();
-                recreateSwapChain();
-            } else {
-                QResizeEvent *re = static_cast<QResizeEvent *>(event);
-                QCoreApplication::postEvent(window, new QResizeEvent(re->size(), re->oldSize()));
-            }
-        }
-    } else if (event->type() == QEvent::UpdateRequest) {
-        if (m_inited && window->isExposed()) {
-            if (!m_frameActive) {
-                if (beginFrame())
-                    renderFrame();
-            } else {
-                update();
-            }
+            m_thread->mutex()->lock();
+            m_thread->postEvent(new QVulkanRenderThreadResizeEvent);
+            m_thread->waitCondition()->wait(m_thread->mutex());
+            m_thread->mutex()->unlock();
         }
     }
 
     return false;
+}
+
+void QVulkanRenderThreadEventQueue::addEvent(QEvent *e)
+{
+    m_mutex.lock();
+    enqueue(e);
+    if (m_waiting)
+        m_condition.wakeOne();
+    m_mutex.unlock();
+}
+
+QEvent *QVulkanRenderThreadEventQueue::takeEvent(bool wait)
+{
+    m_mutex.lock();
+    if (isEmpty() && wait) {
+        m_waiting = true;
+        m_condition.wait(&m_mutex);
+        m_waiting = false;
+    }
+    QEvent *e = dequeue();
+    m_mutex.unlock();
+    return e;
+}
+
+bool QVulkanRenderThreadEventQueue::hasMoreEvents()
+{
+    m_mutex.lock();
+    bool has = !isEmpty();
+    m_mutex.unlock();
+    return has;
+}
+
+void QVulkanRenderThread::postEvent(QEvent *e)
+{
+    m_eventQueue.addEvent(e);
+}
+
+void QVulkanRenderThread::processEvents()
+{
+    while (m_eventQueue.hasMoreEvents()) {
+        QEvent *e = m_eventQueue.takeEvent(false);
+        processEvent(e);
+        delete e;
+    }
+}
+
+void QVulkanRenderThread::processEventsAndWaitForMore()
+{
+    m_stopEventProcessing = false;
+    while (!m_stopEventProcessing) {
+        QEvent *e = m_eventQueue.takeEvent(true);
+        processEvent(e);
+        delete e;
+    }
+}
+
+void QVulkanRenderThread::processEvent(QEvent *e)
+{
+    switch (e->type()) {
+    case QVulkanRenderThreadExposeEvent::Type:
+        m_mutex.lock();
+        if (Q_UNLIKELY(debug_render()))
+            qDebug("render thread - expose");
+        if (!d->m_inited)
+            d->init();
+        m_pendingUpdate = true;
+        if (m_sleeping)
+            m_stopEventProcessing = true;
+        m_condition.wakeOne();
+        m_mutex.unlock();
+        break;
+    case QVulkanRenderThreadObscureEvent::Type:
+        m_mutex.lock();
+        if (!d->m_frameActive) {
+            if (Q_UNLIKELY(debug_render()))
+                qDebug("render thread - obscure");
+            obscure();
+        } else {
+            m_pendingObscure = true;
+        }
+        m_condition.wakeOne();
+        m_mutex.unlock();
+        break;
+    case QVulkanRenderThreadResizeEvent::Type:
+        m_mutex.lock();
+        if (!d->m_frameActive) {
+            if (Q_UNLIKELY(debug_render()))
+                qDebug("render thread - resize");
+            resize();
+        } else {
+            m_pendingResize = true;
+        }
+        m_condition.wakeOne();
+        m_mutex.unlock();
+        break;
+    case QVulkanRenderThreadUpdateEvent::Type:
+        m_mutex.lock();
+        setUpdatePending();
+        m_condition.wakeOne();
+        m_mutex.unlock();
+        break;
+    case QVulkanRenderThreadFrameQueuedEvent::Type:
+        m_mutex.lock();
+        if (Q_UNLIKELY(debug_render()))
+            qDebug("render thread - worker ready");
+        d->endFrame();
+        if (m_sleeping)
+            m_stopEventProcessing = true;
+        m_condition.wakeOne();
+        m_mutex.unlock();
+        break;
+    case QVulkanRenderThreadDestroyEvent::Type:
+        m_mutex.lock();
+        if (!d->m_frameActive) {
+            if (Q_UNLIKELY(debug_render()))
+                qDebug("render thread - destroy");
+            m_active = false;
+            if (m_sleeping)
+                m_stopEventProcessing = true;
+        } else {
+            m_pendingDestroy = true;
+        }
+        m_condition.wakeOne();
+        m_mutex.unlock();
+        break;
+    default:
+        qWarning("Unknown render thread event %d", e->type());
+        break;
+    }
+}
+
+void QVulkanRenderThread::setUpdatePending()
+{
+    m_pendingUpdate = true;
+    if (m_sleeping)
+        m_stopEventProcessing = true;
+}
+
+void QVulkanRenderThread::obscure()
+{
+    if (!d->m_inited)
+        return;
+
+    d->f->vkDeviceWaitIdle(d->m_vkDev);
+    d->cleanup();
+    m_pendingUpdate = false;
+}
+
+void QVulkanRenderThread::resize()
+{
+    if (!d->m_inited)
+        return;
+
+    d->f->vkDeviceWaitIdle(d->m_vkDev);
+    d->recreateSwapChain();
+}
+
+void QVulkanRenderThread::run()
+{
+    if (Q_UNLIKELY(debug_render()))
+        qDebug("render thread - start");
+
+    m_sleeping = false;
+    m_stopEventProcessing = false;
+    m_pendingUpdate = false;
+    m_pendingObscure = false;
+    m_pendingResize = false;
+    m_pendingDestroy = false;
+
+    while (m_active) {
+        if (m_pendingDestroy) {
+            if (Q_UNLIKELY(debug_render()))
+                qDebug("render thread - processing pending destroy");
+            m_active = false;
+            continue;
+        }
+        if (m_pendingObscure && !d->m_frameActive) {
+            m_pendingObscure = false;
+            m_pendingResize = false;
+            if (Q_UNLIKELY(debug_render()))
+                qDebug("render thread - processing pending obscure");
+            obscure();
+        }
+        if (m_pendingResize && !d->m_frameActive) {
+            m_pendingResize = false;
+            m_pendingUpdate = true;
+            if (Q_UNLIKELY(debug_render()))
+                qDebug("render thread - processing pending resize");
+            resize();
+        }
+        if (m_pendingUpdate && !d->m_frameActive) {
+            m_pendingUpdate = false;
+            if (d->beginFrame())
+                d->renderFrame();
+        }
+
+        processEvents();
+        QCoreApplication::processEvents();
+
+        if (!m_pendingUpdate) {
+            m_sleeping = true;
+            processEventsAndWaitForMore();
+            m_sleeping = false;
+        }
+    }
+
+    if (Q_UNLIKELY(debug_render()))
+        qDebug("render thread - exit");
 }
 
 void QVulkanRenderLoopPrivate::init()
@@ -1070,7 +1283,7 @@ void QVulkanRenderLoopPrivate::endFrame()
     m_currentFrame = (m_currentFrame + 1) % m_framesInFlight;
 
     if (m_flags.testFlag(QVulkanRenderLoop::UpdateContinuously))
-        update();
+        q->update();
 }
 
 void QVulkanRenderLoopPrivate::renderFrame()
@@ -1094,11 +1307,6 @@ void QVulkanRenderLoopPrivate::renderFrame()
     VkImageSubresourceRange subResRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
     f->vkCmdClearColorImage(cb, img, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &subResRange);
 
-    endFrame();
-}
-
-void QVulkanRenderLoopPrivate::onQueued()
-{
     endFrame();
 }
 

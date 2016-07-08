@@ -1,5 +1,6 @@
 TEMPLATE = app
 QT += vulkan
+CONFIG += console
 
 SOURCES = main.cpp
 

@@ -217,7 +217,7 @@ QVulkanRenderLoopPrivate::QVulkanRenderLoopPrivate(QWindow *window)
       m_framesInFlight(1),
       f(QVulkanFunctions::instance())
 {
-    m_window->installEventFilter(this);
+    window->installEventFilter(this);
 }
 
 void QVulkanRenderLoopPrivate::onDestroyed(QObject *obj)
@@ -234,10 +234,13 @@ void QVulkanRenderLoopPrivate::update()
         QCoreApplication::postEvent(m_window, new QEvent(QEvent::UpdateRequest));
 }
 
-bool QVulkanRenderLoopPrivate::eventFilter(QObject *, QEvent *event)
+bool QVulkanRenderLoopPrivate::eventFilter(QObject *watched, QEvent *event)
 {
+    QWindow *window = static_cast<QWindow *>(watched);
     if (event->type() == QEvent::Expose) {
-        if (m_window->isExposed()) {
+        if (window->isExposed()) {
+            m_winId = window->winId();
+            m_windowSize = window->size();
             if (!m_inited)
                 init();
             update();
@@ -246,12 +249,13 @@ bool QVulkanRenderLoopPrivate::eventFilter(QObject *, QEvent *event)
             cleanup();
         }
     } else if (event->type() == QEvent::Resize) {
-        if (m_inited && m_window->isExposed()) {
+        if (m_inited && window->isExposed()) {
             f->vkDeviceWaitIdle(m_vkDev);
+            m_windowSize = window->size();
             recreateSwapChain();
         }
     } else if (event->type() == QEvent::UpdateRequest) {
-        if (m_inited && m_window->isExposed()) {
+        if (m_inited && window->isExposed()) {
             if (!m_frameActive) {
                 if (beginFrame())
                     renderFrame();
@@ -294,21 +298,6 @@ void QVulkanRenderLoopPrivate::cleanup()
     m_inited = false;
 
     releaseDeviceAndSurface();
-}
-
-inline VkDeviceSize qtvk_alignedSize(VkDeviceSize size, VkDeviceSize byteAlign)
-{
-    return (size + byteAlign - 1) & ~(byteAlign - 1);
-}
-
-inline VkRect2D qtvk_rect2D(const QRect &rect)
-{
-    VkRect2D r;
-    r.offset.x = rect.x();
-    r.offset.y = rect.y();
-    r.extent.width = rect.width();
-    r.extent.height = rect.height();
-    return r;
 }
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallbackFunc(VkDebugReportFlagsEXT flags,
@@ -598,7 +587,7 @@ void QVulkanRenderLoopPrivate::createSurface()
     memset(&surfaceInfo, 0, sizeof(surfaceInfo));
     surfaceInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
     surfaceInfo.hinstance = GetModuleHandle(nullptr);
-    surfaceInfo.hwnd = HWND(m_window->winId());
+    surfaceInfo.hwnd = HWND(m_winId);
     VkResult err = vkCreateWin32SurfaceKHR(m_vkInst, &surfaceInfo, nullptr, &m_surface);
     if (err != VK_SUCCESS)
         qFatal("Failed to create Win32 surface: %d", err);
@@ -675,8 +664,7 @@ bool QVulkanRenderLoopPrivate::physicalDeviceSupportsPresent(int queueFamilyIdx)
 
 void QVulkanRenderLoopPrivate::recreateSwapChain()
 {
-    Q_ASSERT(m_window);
-    if (m_window->size().isEmpty())
+    if (m_windowSize.isEmpty())
         return;
 
     if (!vkCreateSwapchainKHR) {
@@ -709,9 +697,9 @@ void QVulkanRenderLoopPrivate::recreateSwapChain()
 
     VkExtent2D bufferSize = surfaceCaps.currentExtent;
     if (bufferSize.width == uint32_t(-1))
-        bufferSize.width = m_window->size().width();
+        bufferSize.width = m_windowSize.width();
     if (bufferSize.height == uint32_t(-1))
-        bufferSize.height = m_window->size().height();
+        bufferSize.height = m_windowSize.height();
 
     VkSurfaceTransformFlagBitsKHR preTransform = surfaceCaps.currentTransform;
     VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;

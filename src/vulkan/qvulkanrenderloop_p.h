@@ -53,8 +53,6 @@
 
 QT_BEGIN_NAMESPACE
 
-class QWindow;
-
 class QVulkanRenderLoopPrivate : public QObject
 {
     Q_OBJECT
@@ -63,10 +61,11 @@ public:
     QVulkanRenderLoopPrivate(QWindow *window);
 
     bool eventFilter(QObject *watched, QEvent *event) override;
+    void update();
+    QWindow *m_window;
 
     void init();
     void cleanup();
-    void update();
     void recreateSwapChain();
     void ensureFrameCmdBuf(int frame, int subIndex);
     void submitFrameCmdBuf(VkSemaphore waitSem, VkSemaphore signalSem, int subIndex, bool fence);
@@ -84,7 +83,8 @@ public:
                          VkImageLayout oldLayout, VkImageLayout newLayout,
                          VkAccessFlags srcAccessMask, VkAccessFlags dstAccessMask, bool ds = false);
 
-    QWindow *m_window;
+    WId m_winId;
+    QSize m_windowSize;
     QVulkanRenderLoop::Flags m_flags;
     int m_framesInFlight;
     bool m_inited = false;

@@ -49,6 +49,7 @@ class QVulkanFunctions;
 class Q_VULKAN_EXPORT QVulkanFrameWorker
 {
 public:
+    virtual ~QVulkanFrameWorker() { }
     virtual void init() = 0;
     virtual void cleanup() = 0;
     virtual void queueFrame(int frame, VkQueue queue, VkSemaphore waitSem, VkSemaphore signalSem) = 0;

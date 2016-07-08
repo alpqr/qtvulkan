@@ -39,6 +39,7 @@
 
 #include "qvulkanrenderloop.h"
 #include <QObject>
+#include <QQueue>
 #include <QThread>
 #include <QMutex>
 #include <QWaitCondition>

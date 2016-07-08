@@ -39,13 +39,9 @@
 #include <QVulkanFunctions>
 #include <qalgorithms.h>
 #include <QVector>
-#include <QCoreApplication>
 #include <QGuiApplication>
 #include <QDebug>
 #include <QElapsedTimer>
-#include <QExposeEvent>
-#include <QResizeEvent>
-#include <QQueue>
 
 #ifdef Q_OS_LINUX
 #include <qpa/qplatformnativeinterface.h>
@@ -349,7 +345,7 @@ void QVulkanRenderThread::processEventsAndWaitForMore()
 
 void QVulkanRenderThread::processEvent(QEvent *e)
 {
-    switch (e->type()) {
+    switch (int(e->type())) {
     case QVulkanRenderThreadExposeEvent::Type:
         m_mutex.lock();
         if (Q_UNLIKELY(debug_render()))

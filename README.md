@@ -1,4 +1,4 @@
-This is the Qt Vulkan test bed - ** now with 100% more threads **
+This is the Qt Vulkan test bed - **now with 100% more threads**
 
 The goal is to experiment with basic Vulkan enablers, focusing mainly on
 getting Vulkan-rendered content into a QWindow, in order to have a more clear

@@ -91,7 +91,8 @@ public:
 
 ================================
 
-Currently only Windows is supported. Others will get added soon.
+Currently only Windows and Linux (X11) are supported, and only
+Windows has been tested in practice. Other WSIs will get added later on.
 
 Note: NVIDIA drivers older than 368 are not recommended. For example, 365 was
 unable to provide vsync and was always running unthrottled.

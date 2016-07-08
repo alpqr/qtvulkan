@@ -39,9 +39,15 @@
 #include <qalgorithms.h>
 #include <QVector>
 #include <QCoreApplication>
+#include <QGuiApplication>
 #include <QDebug>
 #include <QElapsedTimer>
 #include <QVulkanFunctions>
+
+#ifdef Q_OS_LINUX
+#include <qpa/qplatformnativeinterface.h>
+#include <QtPlatformHeaders/qxcbwindowfunctions.h>
+#endif
 
 QT_BEGIN_NAMESPACE
 
@@ -240,6 +246,10 @@ bool QVulkanRenderLoopPrivate::eventFilter(QObject *watched, QEvent *event)
     if (event->type() == QEvent::Expose) {
         if (window->isExposed()) {
             m_winId = window->winId();
+#ifdef Q_OS_LINUX
+            m_xcbConnection = static_cast<xcb_connection_t *>(qGuiApp->platformNativeInterface()->nativeResourceForIntegration(QByteArrayLiteral("connection")));
+            m_xcbVisualId = QXcbWindowFunctions::visualId(window);
+#endif
             m_windowSize = window->size();
             if (!m_inited)
                 init();
@@ -579,7 +589,7 @@ void QVulkanRenderLoopPrivate::createSurface()
     vkGetPhysicalDeviceSurfaceFormatsKHR = reinterpret_cast<PFN_vkGetPhysicalDeviceSurfaceFormatsKHR>(f->vkGetInstanceProcAddr(m_vkInst, "vkGetPhysicalDeviceSurfaceFormatsKHR"));
     vkGetPhysicalDeviceSurfacePresentModesKHR = reinterpret_cast<PFN_vkGetPhysicalDeviceSurfacePresentModesKHR>(f->vkGetInstanceProcAddr(m_vkInst, "vkGetPhysicalDeviceSurfacePresentModesKHR"));
 
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN)
     vkCreateWin32SurfaceKHR = reinterpret_cast<PFN_vkCreateWin32SurfaceKHR>(f->vkGetInstanceProcAddr(m_vkInst, "vkCreateWin32SurfaceKHR"));
     vkGetPhysicalDeviceWin32PresentationSupportKHR = reinterpret_cast<PFN_vkGetPhysicalDeviceWin32PresentationSupportKHR>(f->vkGetInstanceProcAddr(m_vkInst, "vkGetPhysicalDeviceWin32PresentationSupportKHR"));
 
@@ -591,6 +601,18 @@ void QVulkanRenderLoopPrivate::createSurface()
     VkResult err = vkCreateWin32SurfaceKHR(m_vkInst, &surfaceInfo, nullptr, &m_surface);
     if (err != VK_SUCCESS)
         qFatal("Failed to create Win32 surface: %d", err);
+#elif defined(Q_OS_LINUX)
+    vkCreateXcbSurfaceKHR = reinterpret_cast<PFN_vkCreateXcbSurfaceKHR>(f->vkGetInstanceProcAddr(m_vkInst, "vkCreateXcbSurfaceKHR"));
+    vkGetPhysicalDeviceXcbPresentationSupportKHR = reinterpret_cast<PFN_vkGetPhysicalDeviceXcbPresentationSupportKHR>(f->vkGetInstanceProcAddr(m_vkInst, "vkGetPhysicalDeviceXcbPresentationSupportKHR"));
+
+    VkXcbSurfaceCreateInfoKHR surfaceInfo;
+    memset(&surfaceInfo, 0, sizeof(surfaceInfo));
+    surfaceInfo.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR;
+    surfaceInfo.connection = m_xcbConnection;
+    surfaceInfo.window = m_winId;
+    VkResult err = vkCreateXcbSurfaceKHR(m_vkInst, &surfaceInfo, nullptr, &m_surface);
+    if (err != VK_SUCCESS)
+        qFatal("Failed to create xcb surface: %d", err);
 #endif
 
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
@@ -653,8 +675,10 @@ void QVulkanRenderLoopPrivate::releaseSurface()
 bool QVulkanRenderLoopPrivate::physicalDeviceSupportsPresent(int queueFamilyIdx)
 {
     bool ok = false;
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN)
     ok |= bool(vkGetPhysicalDeviceWin32PresentationSupportKHR(m_vkPhysDev, queueFamilyIdx));
+#elif defined(Q_OS_LINUX)
+    ok |= bool(vkGetPhysicalDeviceXcbPresentationSupportKHR(m_vkPhysDev, queueFamilyIdx, m_xcbConnection, m_xcbVisualId));
 #endif
     VkBool32 supported = false;
     vkGetPhysicalDeviceSurfaceSupportKHR(m_vkPhysDev, queueFamilyIdx, m_surface, &supported);

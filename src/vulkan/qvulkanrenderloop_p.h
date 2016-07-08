@@ -84,6 +84,10 @@ public:
                          VkAccessFlags srcAccessMask, VkAccessFlags dstAccessMask, bool ds = false);
 
     WId m_winId;
+#ifdef Q_OS_LINUX
+    xcb_connection_t *m_xcbConnection;
+    xcb_visualid_t m_xcbVisualId;
+#endif
     QSize m_windowSize;
     QVulkanRenderLoop::Flags m_flags;
     int m_framesInFlight;
@@ -131,9 +135,12 @@ public:
     uint32_t m_currentSwapChainBuffer;
     uint32_t m_currentFrame;
 
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN)
     PFN_vkCreateWin32SurfaceKHR vkCreateWin32SurfaceKHR;
     PFN_vkGetPhysicalDeviceWin32PresentationSupportKHR vkGetPhysicalDeviceWin32PresentationSupportKHR;
+#elif defined(Q_OS_LINUX)
+    PFN_vkCreateXcbSurfaceKHR vkCreateXcbSurfaceKHR;
+    PFN_vkGetPhysicalDeviceXcbPresentationSupportKHR vkGetPhysicalDeviceXcbPresentationSupportKHR;
 #endif
 
     PFN_vkDestroySurfaceKHR vkDestroySurfaceKHR;

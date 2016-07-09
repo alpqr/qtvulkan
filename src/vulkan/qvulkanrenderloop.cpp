@@ -151,14 +151,10 @@ void QVulkanRenderLoop::update()
     if (!d->m_inited)
         return;
 
-    if (QThread::currentThread() == d->m_thread) {
+    if (QThread::currentThread() == d->m_thread)
         d->m_thread->setUpdatePending();
-    } else {
-        d->m_thread->mutex()->lock();
-        d->m_thread->postEvent(new QVulkanRenderThreadUpdateEvent);
-        d->m_thread->waitCondition()->wait(d->m_thread->mutex());
-        d->m_thread->mutex()->unlock();
-    }
+    else
+        d->postThreadEvent(new QVulkanRenderThreadUpdateEvent);
 }
 
 void QVulkanRenderLoop::frameQueued()
@@ -166,14 +162,10 @@ void QVulkanRenderLoop::frameQueued()
     if (!d->m_inited)
         return;
 
-    if (QThread::currentThread() == d->m_thread) {
+    if (QThread::currentThread() == d->m_thread)
         d->endFrame();
-    } else {
-        d->m_thread->mutex()->lock();
-        d->m_thread->postEvent(new QVulkanRenderThreadFrameQueuedEvent);
-        d->m_thread->waitCondition()->wait(d->m_thread->mutex());
-        d->m_thread->mutex()->unlock();
-    }
+    else
+        d->postThreadEvent(new QVulkanRenderThreadFrameQueuedEvent);
 }
 
 VkInstance QVulkanRenderLoop::instance() const
@@ -242,10 +234,7 @@ QVulkanRenderLoopPrivate::QVulkanRenderLoopPrivate(QVulkanRenderLoop *q_ptr, QWi
 QVulkanRenderLoopPrivate::~QVulkanRenderLoopPrivate()
 {
     if (m_thread) {
-        m_thread->mutex()->lock();
-        m_thread->postEvent(new QVulkanRenderThreadDestroyEvent);
-        m_thread->waitCondition()->wait(m_thread->mutex());
-        m_thread->mutex()->unlock();
+        postThreadEvent(new QVulkanRenderThreadDestroyEvent);
         m_thread->wait();
         delete m_thread;
     }
@@ -268,25 +257,28 @@ bool QVulkanRenderLoopPrivate::eventFilter(QObject *watched, QEvent *event)
             m_xcbVisualId = QXcbWindowFunctions::visualId(window);
 #endif
             m_windowSize = window->size();
-            m_thread->postEvent(new QVulkanRenderThreadExposeEvent);
-            m_thread->waitCondition()->wait(m_thread->mutex());
-            m_thread->mutex()->unlock();
+            postThreadEvent(new QVulkanRenderThreadExposeEvent, false);
         } else if (m_inited) {
-            m_thread->mutex()->lock();
-            m_thread->postEvent(new QVulkanRenderThreadObscureEvent);
-            m_thread->waitCondition()->wait(m_thread->mutex());
-            m_thread->mutex()->unlock();
+            postThreadEvent(new QVulkanRenderThreadObscureEvent);
         }
     } else if (event->type() == QEvent::Resize) {
         if (m_inited && window->isExposed()) {
             m_thread->mutex()->lock();
-            m_thread->postEvent(new QVulkanRenderThreadResizeEvent);
-            m_thread->waitCondition()->wait(m_thread->mutex());
-            m_thread->mutex()->unlock();
+            m_windowSize = window->size();
+            postThreadEvent(new QVulkanRenderThreadResizeEvent, false);
         }
     }
 
     return false;
+}
+
+void QVulkanRenderLoopPrivate::postThreadEvent(QEvent *e, bool lock)
+{
+    if (lock)
+        m_thread->mutex()->lock();
+    m_thread->postEvent(e);
+    m_thread->waitCondition()->wait(m_thread->mutex());
+    m_thread->mutex()->unlock();
 }
 
 void QVulkanRenderThreadEventQueue::addEvent(QEvent *e)

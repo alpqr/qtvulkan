@@ -67,6 +67,8 @@ public:
 
     bool eventFilter(QObject *watched, QEvent *event) override;
 
+    void postThreadEvent(QEvent *e, bool lock = true);
+
     void init();
     void cleanup();
     void recreateSwapChain();

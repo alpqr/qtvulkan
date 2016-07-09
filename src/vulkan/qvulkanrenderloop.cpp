@@ -489,7 +489,10 @@ void QVulkanRenderThread::run()
         processEvents();
         QCoreApplication::processEvents();
 
-        if (!m_pendingUpdate) {
+        if (!m_pendingUpdate
+                && !m_pendingDestroy
+                && !(m_pendingObscure && !d->m_frameActive)
+                && !(m_pendingResize && !d->m_frameActive)) {
             m_sleeping = true;
             processEventsAndWaitForMore();
             m_sleeping = false;

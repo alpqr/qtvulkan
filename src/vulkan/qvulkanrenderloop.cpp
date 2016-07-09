@@ -774,14 +774,24 @@ void QVulkanRenderLoopPrivate::createDeviceAndSurface()
         qFatal("Failed to create command pool: %d", err);
 
     m_hostVisibleMemIndex = 0;
+    bool hostVisibleMemIndexSet = false;
     f->vkGetPhysicalDeviceMemoryProperties(m_vkPhysDev, &m_vkPhysDevMemProps);
     for (uint32_t i = 0; i < m_vkPhysDevMemProps.memoryTypeCount; ++i) {
         const VkMemoryType *memType = m_vkPhysDevMemProps.memoryTypes;
         if (Q_UNLIKELY(debug_render()))
-            qDebug("phys dev mem prop %d: flags=0x%x", i, memType[i].propertyFlags);
-        if (memType[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
-            m_hostVisibleMemIndex = i;
+            qDebug("memtype %d: flags=0x%x", i, memType[i].propertyFlags);
+        // Find a host visible, host coherent memtype. If there is one that is
+        // cached as well (in addition to being coherent), prefer that.
+        if (memType[i].propertyFlags & (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
+            if (!hostVisibleMemIndexSet
+                    || (memType[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_CACHED_BIT)) {
+                hostVisibleMemIndexSet = true;
+                m_hostVisibleMemIndex = i;
+            }
+        }
     }
+    if (Q_UNLIKELY(debug_render()))
+        qDebug("picked memtype %d for host visible memory", m_hostVisibleMemIndex);
 
     m_colorFormat = VK_FORMAT_B8G8R8A8_UNORM;
 }

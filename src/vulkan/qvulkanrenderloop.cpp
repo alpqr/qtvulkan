@@ -198,14 +198,24 @@ VkCommandPool QVulkanRenderLoop::commandPool() const
     return d->m_vkCmdPool;
 }
 
-VkImage QVulkanRenderLoop::currentSwapChainImage() const
+int QVulkanRenderLoop::swapChainImageCount() const
 {
-    return d->m_swapChainImages[d->m_currentSwapChainBuffer];
+    return d->m_swapChainBufferCount;
 }
 
-VkImageView QVulkanRenderLoop::currentSwapChainImageView() const
+int QVulkanRenderLoop::currentSwapChainImageIndex() const
 {
-    return d->m_swapChainImageViews[d->m_currentSwapChainBuffer];
+    return d->m_currentSwapChainBuffer;
+}
+
+VkImage QVulkanRenderLoop::swapChainImage(int idx) const
+{
+    return d->m_swapChainImages[idx];
+}
+
+VkImageView QVulkanRenderLoop::swapChainImageView(int idx) const
+{
+    return d->m_swapChainImageViews[idx];
 }
 
 VkFormat QVulkanRenderLoop::swapChainFormat() const

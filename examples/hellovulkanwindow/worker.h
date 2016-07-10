@@ -38,40 +38,41 @@
 **
 ****************************************************************************/
 
-#include <QGuiApplication>
-#include <QWindow>
-#include "worker.h"
+#ifndef WORKER_H
+#define WORKER_H
 
-int main(int argc, char **argv)
+#include <QVulkanRenderLoop>
+#include <QThreadPool>
+
+const int FRAMES_IN_FLIGHT = 2;
+
+class Worker : public QVulkanFrameWorker
 {
-    // Let's report what is going on under the hood.
-    qputenv("QVULKAN_DEBUG", "render");
+public:
+    Worker(QVulkanRenderLoop *rl) : m_renderLoop(rl) { }
 
-    QGuiApplication app(argc, argv);
+    void init() override;
+    void cleanup() override;
+    void queueFrame(int frame, VkQueue queue, VkSemaphore waitSem, VkSemaphore signalSem) override;
 
-    qDebug("Opening window. Main/gui thread is %p", QThread::currentThread());
+private:
+    QVulkanRenderLoop *m_renderLoop;
 
-    QWindow window;
-    window.setSurfaceType(QSurface::OpenGLSurface);
+    VkCommandBuffer m_cb[FRAMES_IN_FLIGHT];
 
-    // Attach a Vulkan renderer to our window.
-    QVulkanRenderLoop rl(&window);
+    friend class AsyncFrameTest;
+};
 
-    // Default is FIFO mode (vsync, throttle the thread), validation off, no continuous update requests, 1 frame in flight.
-    // Change this a bit:
-    rl.setFlags(QVulkanRenderLoop::UpdateContinuously | QVulkanRenderLoop::EnableValidation /* | QVulkanRenderLoop::Unthrottled */);
-    rl.setFramesInFlight(FRAMES_IN_FLIGHT);
+//#define TEST_ASYNC
 
-    // Attach our worker to the Vulkan renderer. Note that while the worker
-    // object lives on the main/gui thread, its functions will get invoked on
-    // the renderer's dedicated thread.
-    Worker worker(&rl);
-    rl.setWorker(&worker);
+#ifdef TEST_ASYNC
+class AsyncFrameTest : public QRunnable
+{
+public:
+    AsyncFrameTest(Worker *w) : m_w(w) { }
+    void run() override { QThread::msleep(20); m_w->m_renderLoop->frameQueued(); }
+    Worker *m_w;
+};
+#endif
 
-    window.resize(1024, 768);
-
-    // Go! Once exposed, rendering will start.
-    window.show();
-
-    return app.exec();
-}
+#endif

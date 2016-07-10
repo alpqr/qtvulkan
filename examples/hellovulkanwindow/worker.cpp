@@ -154,7 +154,7 @@ void Worker::init()
     attDesc[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     attDesc[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     attDesc[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    attDesc[1].format = VK_FORMAT_D24_UNORM_S8_UINT;
+    attDesc[1].format = m_renderLoop->depthStencilFormat();
     attDesc[1].samples = VK_SAMPLE_COUNT_1_BIT;
     attDesc[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     attDesc[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE; // do not write out depth

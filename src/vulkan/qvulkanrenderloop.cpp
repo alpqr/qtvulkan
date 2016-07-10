@@ -442,6 +442,9 @@ void QVulkanRenderThread::resize()
 
     d->f->vkDeviceWaitIdle(d->m_vkDev);
     d->recreateSwapChain();
+
+    if (d->m_worker)
+        d->m_worker->resize(d->m_windowSize);
 }
 
 void QVulkanRenderThread::run()
@@ -512,8 +515,10 @@ void QVulkanRenderLoopPrivate::init()
     if (Q_UNLIKELY(debug_render()))
         qDebug("VK window renderer initialized");
 
-    if (m_worker)
+    if (m_worker) {
         m_worker->init();
+        m_worker->resize(m_windowSize);
+    }
 }
 
 void QVulkanRenderLoopPrivate::cleanup()

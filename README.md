@@ -47,6 +47,7 @@ class Q_VULKAN_EXPORT QVulkanFrameWorker
 public:
     virtual ~QVulkanFrameWorker() { }
     virtual void init() = 0;
+    virtual void resize(const QSize &size) = 0;
     virtual void cleanup() = 0;
     virtual void queueFrame(int frame, VkQueue queue, VkSemaphore waitSem, VkSemaphore signalSem) = 0;
 };
@@ -77,12 +78,15 @@ public:
 
     VkInstance instance() const;
     VkPhysicalDevice physicalDevice() const;
+    const VkPhysicalDeviceLimits *physicalDeviceLimits() const;
+    uint32_t hostVisibleMemoryIndex() const;
     VkDevice device() const;
     VkCommandPool commandPool() const;
-    uint32_t hostVisibleMemoryIndex() const;
 
-    VkImage currentSwapChainImage() const;
-    VkImageView currentSwapChainImageView() const;
+    int swapChainImageCount() const;
+    int currentSwapChainImageIndex() const;
+    VkImage swapChainImage(int idx) const;
+    VkImageView swapChainImageView(int idx) const;
     VkFormat swapChainFormat() const;
     VkImage depthStencilImage() const;
     VkImageView depthStencilImageView() const;

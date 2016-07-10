@@ -52,6 +52,7 @@ public:
     Worker(QVulkanRenderLoop *rl) : m_renderLoop(rl) { }
 
     void init() override;
+    void resize(const QSize &size) override;
     void cleanup() override;
     void queueFrame(int frame, VkQueue queue, VkSemaphore waitSem, VkSemaphore signalSem) override;
 
@@ -59,6 +60,12 @@ private:
     QVulkanRenderLoop *m_renderLoop;
 
     VkCommandBuffer m_cb[FRAMES_IN_FLIGHT];
+
+    VkDeviceMemory m_bufMem;
+    VkBuffer m_buf;
+
+    VkRenderPass m_renderPass;
+    VkFramebuffer m_fb[3];
 
     friend class AsyncFrameTest;
 };

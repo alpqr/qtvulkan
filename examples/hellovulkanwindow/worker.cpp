@@ -40,19 +40,206 @@
 
 #include "worker.h"
 #include <QVulkanFunctions>
+#include <QMatrix4x4>
+
+static float vertexData[] = {
+    0.0f, 0.5f,      1.0f, 0.0f, 0.0f,
+    -0.5f, -0.5f,    0.0f, 1.0f, 0.0f,
+    0.5f, -0.5f,     0.0f, 0.0f, 1.0f
+};
+
+static const int UNIFORM_DATA_SIZE = 16 * sizeof(float);
+
+static inline VkDeviceSize aligned(VkDeviceSize v, VkDeviceSize byteAlign)
+{
+    return (v + byteAlign - 1) & ~(byteAlign - 1);
+}
 
 void Worker::init()
 {
     for (int i = 0; i < FRAMES_IN_FLIGHT; ++i)
         m_cb[i] = VK_NULL_HANDLE;
+
+    QVulkanFunctions *f = m_renderLoop->functions();
+    VkDevice dev = m_renderLoop->device();
+
+    // Prepare the vertex and uniform buffers. The vertex data will never
+    // change so one buffer is sufficient regardless of the value of
+    // FRAMES_IN_FLIGHT. Uniform data is changing per frame however so active
+    // frames have to have a dedicated copy.
+
+    // This is not OpenGL 2.0 anymore, so have just one memory allocation and
+    // one buffer. We will then specify the appropriate offsets for uniform
+    // buffers in the VkDescriptorBufferInfo. Have to watch out for
+    // VkPhysicalDeviceLimits::minUniformBufferOffsetAlignment, though.
+
+    const VkDeviceSize uniAlign = m_renderLoop->physicalDeviceLimits()->minUniformBufferOffsetAlignment; // 256 bytes usually
+    VkBufferCreateInfo bufInfo;
+    memset(&bufInfo, 0, sizeof(bufInfo));
+    bufInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    // Our internal layout is vertex, uniform, uniform, ... with each uniform buffer start offset aligned to uniAlign.
+    const VkDeviceSize vertexAllocSize = aligned(sizeof(vertexData), uniAlign);
+    const VkDeviceSize uniformAllocSize = aligned(UNIFORM_DATA_SIZE, uniAlign);
+    bufInfo.size = vertexAllocSize + FRAMES_IN_FLIGHT * uniformAllocSize;
+    bufInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+
+    VkResult err = f->vkCreateBuffer(dev, &bufInfo, nullptr, &m_buf);
+    if (err != VK_SUCCESS)
+        qFatal("Failed to create buffer: %d", err);
+
+    VkMemoryRequirements memReq;
+    f->vkGetBufferMemoryRequirements(dev, m_buf, &memReq);
+
+    VkMemoryAllocateInfo memAllocInfo = {
+        VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        nullptr,
+        memReq.size,
+        m_renderLoop->hostVisibleMemoryIndex()
+    };
+
+    err = f->vkAllocateMemory(dev, &memAllocInfo, nullptr, &m_bufMem);
+    if (err != VK_SUCCESS)
+        qFatal("Failed to allocate memory: %d", err);
+
+    err = f->vkBindBufferMemory(dev, m_buf, m_bufMem, 0);
+    if (err != VK_SUCCESS)
+        qFatal("Failed to bind buffer memory: %d", err);
+
+    quint8 *p;
+    err = f->vkMapMemory(dev, m_bufMem, 0, memReq.size, 0, reinterpret_cast<void **>(&p));
+    if (err != VK_SUCCESS)
+        qFatal("Failed to map memory: %d", err);
+    memcpy(p, vertexData, sizeof(vertexData));
+    p += vertexAllocSize;
+    QMatrix4x4 ident;
+    for (int i = 0; i < FRAMES_IN_FLIGHT; ++i)
+        memcpy(p + i * uniformAllocSize, ident.constData(), UNIFORM_DATA_SIZE);
+    f->vkUnmapMemory(dev, m_bufMem);
+
+    VkVertexInputBindingDescription vertexBindingDesc = {
+        0, // binding
+        5 * sizeof(float),
+        VK_VERTEX_INPUT_RATE_VERTEX
+    };
+    VkVertexInputAttributeDescription vertexAttrDesc[] = {
+        {
+            0, // location
+            0, // binding
+            VK_FORMAT_R32G32_SFLOAT,
+            0
+        },
+        {
+            0,
+            1,
+            VK_FORMAT_R32G32B32_SFLOAT,
+            2 * sizeof(float)
+        }
+    };
+
+    VkPipelineVertexInputStateCreateInfo vertexInputInfo;
+    vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertexInputInfo.pNext = nullptr;
+    vertexInputInfo.flags = 0;
+    vertexInputInfo.vertexBindingDescriptionCount = 1;
+    vertexInputInfo.pVertexBindingDescriptions = &vertexBindingDesc;
+    vertexInputInfo.vertexAttributeDescriptionCount = 2;
+    vertexInputInfo.pVertexAttributeDescriptions = vertexAttrDesc;
+
+    // Create render pass.
+    VkAttachmentDescription attDesc[2];
+    memset(attDesc, 0, sizeof(attDesc));
+    attDesc[0].format = m_renderLoop->swapChainFormat();
+    attDesc[0].samples = VK_SAMPLE_COUNT_1_BIT;
+    attDesc[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    attDesc[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    attDesc[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    attDesc[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    attDesc[1].format = VK_FORMAT_D24_UNORM_S8_UINT;
+    attDesc[1].samples = VK_SAMPLE_COUNT_1_BIT;
+    attDesc[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    attDesc[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE; // do not write out depth
+    attDesc[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    attDesc[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    VkAttachmentReference colorRef = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+    VkAttachmentReference dsRef = { 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+
+    VkSubpassDescription subPassDesc;
+    memset(&subPassDesc, 0, sizeof(subPassDesc));
+    subPassDesc.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subPassDesc.colorAttachmentCount = 1;
+    subPassDesc.pColorAttachments = &colorRef;
+    subPassDesc.pDepthStencilAttachment = &dsRef;
+
+    VkRenderPassCreateInfo rpInfo;
+    memset(&rpInfo, 0, sizeof(rpInfo));
+    rpInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    rpInfo.attachmentCount = 2;
+    rpInfo.pAttachments = attDesc;
+    rpInfo.subpassCount = 1;
+    rpInfo.pSubpasses = &subPassDesc;
+    err = f->vkCreateRenderPass(dev, &rpInfo, nullptr, &m_renderPass);
+    if (err != VK_SUCCESS)
+        qFatal("Failed to create renderpass: %d", err);
+
+    // Leave framebuffer creation to resize().
+    for (size_t i = 0; i < sizeof(m_fb) / sizeof(VkFramebuffer); ++i)
+        m_fb[i] = VK_NULL_HANDLE;
+
+    // ###
+}
+
+void Worker::resize(const QSize &size)
+{
+    // Window size dependent resources are (re)created here. This function is
+    // called once after init() and then whenever the window gets resized.
+
+    QVulkanFunctions *f = m_renderLoop->functions();
+    VkDevice dev = m_renderLoop->device();
+
+    for (size_t i = 0; i < sizeof(m_fb) / sizeof(VkFramebuffer); ++i) {
+        if (m_fb[i] != VK_NULL_HANDLE)
+            f->vkDestroyFramebuffer(dev, m_fb[i], nullptr);
+    }
+
+    const int count = m_renderLoop->swapChainImageCount();
+    Q_ASSERT(count <= sizeof(m_fb) / sizeof(VkFramebuffer));
+    for (int i = 0; i < count; ++i) {
+        VkImageView views[2] = {
+            m_renderLoop->swapChainImageView(i),
+            m_renderLoop->depthStencilImageView()
+        };
+        VkFramebufferCreateInfo fbInfo;
+        memset(&fbInfo, 0, sizeof(fbInfo));
+        fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        fbInfo.renderPass = m_renderPass;
+        fbInfo.attachmentCount = 2;
+        fbInfo.pAttachments = views;
+        fbInfo.width = size.width();
+        fbInfo.height = size.height();
+        fbInfo.layers = 1;
+        VkResult err = f->vkCreateFramebuffer(dev, &fbInfo, nullptr, &m_fb[i]);
+        if (err != VK_SUCCESS)
+            qFatal("Failed to create framebuffer: %d", err);
+    }
 }
 
 void Worker::cleanup()
 {
     QVulkanFunctions *f = m_renderLoop->functions();
+    VkDevice dev = m_renderLoop->device();
+
+    for (int i = 0; i < m_renderLoop->swapChainImageCount(); ++i)
+        f->vkDestroyFramebuffer(dev, m_fb[i], nullptr);
+
+    f->vkDestroyRenderPass(dev, m_renderPass, nullptr);
+
+    f->vkDestroyBuffer(dev, m_buf, nullptr);
+    f->vkFreeMemory(dev, m_bufMem, nullptr);
+
     for (int i = 0; i < FRAMES_IN_FLIGHT; ++i) {
         if (m_cb[i] != VK_NULL_HANDLE) {
-            f->vkFreeCommandBuffers(m_renderLoop->device(), m_renderLoop->commandPool(), 1, &m_cb[i]);
+            f->vkFreeCommandBuffers(dev, m_renderLoop->commandPool(), 1, &m_cb[i]);
             m_cb[i] = VK_NULL_HANDLE;
         }
     }
@@ -62,18 +249,17 @@ void Worker::queueFrame(int frame, VkQueue queue, VkSemaphore waitSem, VkSemapho
 {
     qDebug("worker queueFrame %d on thread %p", frame, QThread::currentThread()); // frame = 0 .. frames_in_flight - 1
 
-    // ### just clear to red for now
-
     QVulkanFunctions *f = m_renderLoop->functions();
-    VkImage img = m_renderLoop->currentSwapChainImage();
+    VkDevice dev = m_renderLoop->device();
+    VkImage img = m_renderLoop->swapChainImage(m_renderLoop->currentSwapChainImageIndex());
 
     // Free the command buffer used in frame no. current - frames_in_flight,
     // we know for sure that that frame has already finished.
     if (m_cb[frame] != VK_NULL_HANDLE)
-        f->vkFreeCommandBuffers(m_renderLoop->device(), m_renderLoop->commandPool(), 1, &m_cb[frame]);
+        f->vkFreeCommandBuffers(dev, m_renderLoop->commandPool(), 1, &m_cb[frame]);
 
     VkCommandBufferAllocateInfo cmdBufInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, nullptr, m_renderLoop->commandPool(), VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1 };
-    VkResult err = f->vkAllocateCommandBuffers(m_renderLoop->device(), &cmdBufInfo, &m_cb[frame]);
+    VkResult err = f->vkAllocateCommandBuffers(dev, &cmdBufInfo, &m_cb[frame]);
     if (err != VK_SUCCESS)
         qFatal("Failed to allocate command buffer: %d", err);
 
@@ -85,6 +271,8 @@ void Worker::queueFrame(int frame, VkQueue queue, VkSemaphore waitSem, VkSemapho
     VkClearColorValue clearColor = { 1.0f, 0.0f, 0.0f, 1.0f };
     VkImageSubresourceRange subResRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
     f->vkCmdClearColorImage(m_cb[frame], img, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &subResRange);
+
+    // ###
 
     err = f->vkEndCommandBuffer(m_cb[frame]);
     if (err != VK_SUCCESS)

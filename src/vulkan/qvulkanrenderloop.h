@@ -81,9 +81,10 @@ public:
 
     VkInstance instance() const;
     VkPhysicalDevice physicalDevice() const;
+    const VkPhysicalDeviceLimits *physicalDeviceLimits() const;
+    uint32_t hostVisibleMemoryIndex() const;
     VkDevice device() const;
     VkCommandPool commandPool() const;
-    uint32_t hostVisibleMemoryIndex() const;
 
     VkImage currentSwapChainImage() const;
     VkImageView currentSwapChainImageView() const;

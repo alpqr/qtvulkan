@@ -111,6 +111,7 @@ public:
     VkFormat m_colorFormat;
     VkInstance m_vkInst;
     VkPhysicalDevice m_vkPhysDev;
+    VkPhysicalDeviceProperties m_physDevProps;
     VkPhysicalDeviceMemoryProperties m_vkPhysDevMemProps;
     VkDevice m_vkDev;
     VkQueue m_vkQueue;

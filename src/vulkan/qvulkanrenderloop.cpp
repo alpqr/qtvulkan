@@ -178,6 +178,16 @@ VkPhysicalDevice QVulkanRenderLoop::physicalDevice() const
     return d->m_vkPhysDev;
 }
 
+const VkPhysicalDeviceLimits *QVulkanRenderLoop::physicalDeviceLimits() const
+{
+    return &d->m_physDevProps.limits;
+}
+
+uint32_t QVulkanRenderLoop::hostVisibleMemoryIndex() const
+{
+    return d->m_hostVisibleMemIndex;
+}
+
 VkDevice QVulkanRenderLoop::device() const
 {
     return d->m_vkDev;
@@ -186,11 +196,6 @@ VkDevice QVulkanRenderLoop::device() const
 VkCommandPool QVulkanRenderLoop::commandPool() const
 {
     return d->m_vkCmdPool;
-}
-
-uint32_t QVulkanRenderLoop::hostVisibleMemoryIndex() const
-{
-    return d->m_hostVisibleMemIndex;
 }
 
 VkImage QVulkanRenderLoop::currentSwapChainImage() const
@@ -669,12 +674,11 @@ void QVulkanRenderLoopPrivate::createDeviceAndSurface()
     if (err != VK_SUCCESS)
         qFatal("Failed to enumerate physical devices: %d", err);
 
-    VkPhysicalDeviceProperties physDevProps;
-    f->vkGetPhysicalDeviceProperties(m_vkPhysDev, &physDevProps);
+    f->vkGetPhysicalDeviceProperties(m_vkPhysDev, &m_physDevProps);
     if (Q_UNLIKELY(debug_render()))
-        qDebug("Device name: %s\nDriver version: %d.%d.%d", physDevProps.deviceName,
-               VK_VERSION_MAJOR(physDevProps.driverVersion), VK_VERSION_MINOR(physDevProps.driverVersion),
-               VK_VERSION_PATCH(physDevProps.driverVersion));
+        qDebug("Device name: %s\nDriver version: %d.%d.%d", m_physDevProps.deviceName,
+               VK_VERSION_MAJOR(m_physDevProps.driverVersion), VK_VERSION_MINOR(m_physDevProps.driverVersion),
+               VK_VERSION_PATCH(m_physDevProps.driverVersion));
 
     layerCount = 0;
     f->vkEnumerateDeviceLayerProperties(m_vkPhysDev, &layerCount, nullptr);

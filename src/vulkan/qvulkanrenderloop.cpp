@@ -50,8 +50,6 @@
 
 QT_BEGIN_NAMESPACE
 
-static const uint32_t REQUESTED_SWAPCHAIN_BUFFERS = 2;
-
 
 /*
     Command buffer and queue behavior without a QVulkanFrameWorker set:
@@ -959,7 +957,7 @@ void QVulkanRenderLoopPrivate::recreateSwapChain()
 
     VkSurfaceCapabilitiesKHR surfaceCaps;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_vkPhysDev, m_surface, &surfaceCaps);
-    uint32_t reqBufferCount = REQUESTED_SWAPCHAIN_BUFFERS;
+    uint32_t reqBufferCount = !m_flags.testFlag(QVulkanRenderLoop::TrippleBuffer) ? 2 : 3;
     if (surfaceCaps.maxImageCount)
         reqBufferCount = qBound(surfaceCaps.minImageCount, reqBufferCount, surfaceCaps.maxImageCount);
     Q_ASSERT(surfaceCaps.minImageCount <= MAX_SWAPCHAIN_BUFFERS);
@@ -1029,7 +1027,7 @@ void QVulkanRenderLoopPrivate::recreateSwapChain()
         qFatal("Failed to get swapchain images: %d", err);
 
     if (Q_UNLIKELY(debug_render()))
-        qDebug("swap chain buffer count: %d", m_swapChainBufferCount);
+        qDebug("actual swap chain buffer count: %d", m_swapChainBufferCount);
 
     for (uint32_t i = 0; i < m_swapChainBufferCount; ++i) {
         VkImageViewCreateInfo imgViewInfo;

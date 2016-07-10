@@ -63,7 +63,8 @@ public:
         EnableValidation = 0x01,
         Unthrottled = 0x02,
         UpdateContinuously = 0x04,
-        DontReleaseOnObscure = 0x08
+        DontReleaseOnObscure = 0x08,
+        TrippleBuffer = 0x10
     };
     Q_DECLARE_FLAGS(Flags, Flag)
 

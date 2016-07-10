@@ -19,15 +19,6 @@ to specify the location of the Vulkan headers.
 
 ==================================
 
-The main goal here is to demonstrate the model where the *dedicated*
-submission/present thread gets throttled based on the vsync, while allowing
-multiple frames in flight without pipeline stalls. (i.e. something that is
-missing from the majority of "tutorials" out there)
-
-To be as portable as possible, all Vulkan functions are resolved dynamically,
-either via QLibrary or the device/instance-level getProcAddr, so no libs are
-needed at link time.
-
 Instead of the traditional QGLWidget, QOpenGLWindow, etc. model (i.e. paintGL)
 we use a QVulkanRenderLoop that gets attached to a QWindow, and gets in turn a
 QVulkanFrameWorker attached to it. The render loop runs its own dedicated thread
@@ -36,10 +27,17 @@ the Qt Quick scenegraph's threaded render loop - except that the interface here
 is asynchronous and the worker can also submit one or more command buffers from
 additional worker threads if it wants to.
 
-The number of frames prepared without blocking (1, 2, or 3) can be decided by
-the application. The standard validation layer can be requested by setting the
-appropriate flag. Without further ado, here's the API, it should be
-self-explanatory:
+To be as portable as possible, all Vulkan functions are resolved dynamically,
+either via QLibrary or the device/instance-level getProcAddr, so no libs are
+needed at link time.
+
+The number of frames prepared without blocking can be decided by the
+application via setFramesInFlight(). Note however that by default the FIFO mode
+is used, meaning the renderloop's thread will get throttled based on the vsync.
+Pass Unthrottled to switch to mailbox mode instead. The swapchain uses 2
+buffers by default, pass TrippleBuffer to request 3 instead. The standard
+validation layer can be requested by setting EnableValidation. Without further
+ado, here's the API, it should be self-explanatory:
 
 ```
 class Q_VULKAN_EXPORT QVulkanFrameWorker
@@ -59,7 +57,8 @@ public:
         EnableValidation = 0x01,
         Unthrottled = 0x02,
         UpdateContinuously = 0x04,
-        DontReleaseOnObscure = 0x08
+        DontReleaseOnObscure = 0x08,
+        TrippleBuffer = 0x10
     };
     Q_DECLARE_FLAGS(Flags, Flag)
 

@@ -486,7 +486,10 @@ void Worker::queueFrame(int frame, VkQueue queue, VkSemaphore waitSem, VkSemapho
     m.rotate(m_rotation, 0, 1, 0);
     memcpy(p, m.constData(), 16 * sizeof(float));
     f->vkUnmapMemory(dev, m_bufMem);
-m_rotation += 1.0f;
+
+    // Not exactly a real animation system, just advance on every frame for now.
+    m_rotation += 1.0f;
+
     VkCommandBufferAllocateInfo cmdBufInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, nullptr, m_renderLoop->commandPool(), VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1 };
     err = f->vkAllocateCommandBuffers(dev, &cmdBufInfo, &m_cb[frame]);
     if (err != VK_SUCCESS)

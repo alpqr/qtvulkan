@@ -43,6 +43,7 @@
 
 #include <QVulkanRenderLoop>
 #include <QThreadPool>
+#include <QMatrix4x4>
 
 const int FRAMES_IN_FLIGHT = 2;
 
@@ -57,15 +58,31 @@ public:
     void queueFrame(int frame, VkQueue queue, VkSemaphore waitSem, VkSemaphore signalSem) override;
 
 private:
+    VkShaderModule createShader(const QString &name);
+
     QVulkanRenderLoop *m_renderLoop;
+
+    QSize m_size;
 
     VkCommandBuffer m_cb[FRAMES_IN_FLIGHT];
 
     VkDeviceMemory m_bufMem;
     VkBuffer m_buf;
+    VkDescriptorBufferInfo m_uniformBufInfo[FRAMES_IN_FLIGHT];
 
     VkRenderPass m_renderPass;
     VkFramebuffer m_fb[3];
+
+    VkDescriptorPool m_descPool;
+    VkDescriptorSetLayout m_descSetLayout;
+    VkDescriptorSet m_descSet[FRAMES_IN_FLIGHT];
+
+    VkPipelineCache m_pipelineCache;
+    VkPipelineLayout m_pipelineLayout;
+    VkPipeline m_pipeline;
+
+    QMatrix4x4 m_proj;
+    float m_rotation;
 
     friend class AsyncFrameTest;
 };

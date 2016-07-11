@@ -1,12 +1,9 @@
-This is the Qt Vulkan test bed - **now with 100% more threads**
+This is the Qt Vulkan test bed.
 
-The goal is to experiment with basic Vulkan enablers, focusing mainly on
-getting Vulkan-rendered content into a QWindow, in order to have a more clear
-view on what kind of (minimal) enablers could be added in Qt 5.9 and beyond.
-
-Do not expect to see fancy demos here - there is no actual geometry rendering
-in the examples yet, apart from clearing. However, QVulkanRenderLoop itself is
-pretty complete and stable already.
+The goal is to experiment with basic - but efficient - Vulkan enablers,
+focusing mainly on getting Vulkan-rendered content into a QWindow, in order to
+have a more clear view on what kind of (minimal) enablers could be added in Qt
+5.9 and beyond.
 
 ==================================
 
@@ -31,13 +28,14 @@ To be as portable as possible, all Vulkan functions are resolved dynamically,
 either via QLibrary or the device/instance-level getProcAddr, so no libs are
 needed at link time.
 
-The number of frames prepared without blocking can be decided by the
-application via setFramesInFlight(). Note however that by default the FIFO mode
-is used, meaning the renderloop's thread will get throttled based on the vsync.
-Pass Unthrottled to switch to mailbox mode instead. The swapchain uses 2
-buffers by default, pass TrippleBuffer to request 3 instead. The standard
-validation layer can be requested by setting EnableValidation. Without further
-ado, here's the API, it should be self-explanatory:
+The number of frames prepared without blocking (i.e. without waiting for the
+previous submission to finish executing) can be changed from the default 1 to 2
+or 3 via setFramesInFlight(). By default the FIFO present mode is used, meaning
+the renderloop's thread will get throttled based on the vsync. Pass Unthrottled
+to switch to mailbox mode instead. The swapchain uses 2 buffers by default,
+pass TrippleBuffer to request 3 instead. The standard validation layer can be
+requested by setting EnableValidation. Without further ado, here's the API, it
+should be self-explanatory:
 
 ```
 class Q_VULKAN_EXPORT QVulkanFrameWorker

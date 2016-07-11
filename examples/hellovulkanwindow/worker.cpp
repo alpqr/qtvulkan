@@ -513,7 +513,7 @@ void Worker::queueFrame(int frame, VkQueue queue, VkSemaphore waitSem, VkSemapho
     memset(&rpBeginInfo, 0, sizeof(rpBeginInfo));
     rpBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     rpBeginInfo.renderPass = m_renderPass;
-    rpBeginInfo.framebuffer = m_fb[frame];
+    rpBeginInfo.framebuffer = m_fb[m_renderLoop->currentSwapChainImageIndex()];
     rpBeginInfo.renderArea.extent.width = m_size.width();
     rpBeginInfo.renderArea.extent.height = m_size.height();
     rpBeginInfo.clearValueCount = 2;

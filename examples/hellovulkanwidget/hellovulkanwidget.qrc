@@ -1,0 +1,6 @@
+<!DOCTYPE RCC><RCC version="1.0">
+<qresource>
+    <file alias="shaders/color_vert.spv">../hellovulkanwindow/shaders/color_vert.spv</file>
+    <file alias="shaders/color_frag.spv">../hellovulkanwindow/shaders/color_frag.spv</file>
+</qresource>
+</RCC>

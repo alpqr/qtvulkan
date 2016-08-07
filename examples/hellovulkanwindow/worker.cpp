@@ -397,7 +397,7 @@ void Worker::init()
     m_rotation = 0.0f;
 }
 
-void Worker::resize(const QSize &size)
+void Worker::resize(uint32_t w, uint32_t h)
 {
     // Window size dependent resources are (re)created here. This function is
     // called once after init() and then whenever the window gets resized.
@@ -423,15 +423,15 @@ void Worker::resize(const QSize &size)
         fbInfo.renderPass = m_renderPass;
         fbInfo.attachmentCount = 2;
         fbInfo.pAttachments = views;
-        fbInfo.width = size.width();
-        fbInfo.height = size.height();
+        fbInfo.width = w;
+        fbInfo.height = h;
         fbInfo.layers = 1;
         VkResult err = f->vkCreateFramebuffer(dev, &fbInfo, nullptr, &m_fb[i]);
         if (err != VK_SUCCESS)
             qFatal("Failed to create framebuffer: %d", err);
     }
 
-    m_size = size;
+    m_size = QSize(w, h);
 
     m_proj.setToIdentity();
     m_proj.perspective(45.0f, m_size.width() / (float) m_size.height(), 0.01f, 100.0f);
@@ -466,7 +466,7 @@ void Worker::cleanup()
     }
 }
 
-void Worker::queueFrame(int frame, VkQueue queue, VkSemaphore waitSem, VkSemaphore signalSem)
+void Worker::queueFrame(uint32_t frame, VkQueue queue, VkSemaphore waitSem, VkSemaphore signalSem)
 {
     qDebug("worker queueFrame %d on thread %p", frame, QThread::currentThread()); // frame = 0 .. frames_in_flight - 1
 

@@ -53,9 +53,9 @@ public:
     Worker(QVulkanRenderLoop *rl) : m_renderLoop(rl) { }
 
     void init() override;
-    void resize(const QSize &size) override;
+    void resize(uint32_t w, uint32_t h) override;
     void cleanup() override;
-    void queueFrame(int frame, VkQueue queue, VkSemaphore waitSem, VkSemaphore signalSem) override;
+    void queueFrame(uint32_t frame, VkQueue queue, VkSemaphore waitSem, VkSemaphore signalSem) override;
 
 private:
     VkShaderModule createShader(const QString &name);

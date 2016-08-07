@@ -51,9 +51,9 @@ class Q_VULKAN_EXPORT QVulkanFrameWorker
 public:
     virtual ~QVulkanFrameWorker() { }
     virtual void init() = 0;
-    virtual void resize(const QSize &size) = 0;
+    virtual void resize(uint32_t w, uint32_t h) = 0;
     virtual void cleanup() = 0;
-    virtual void queueFrame(int frame, VkQueue queue, VkSemaphore waitSem, VkSemaphore signalSem) = 0;
+    virtual void queueFrame(uint32_t frame, VkQueue queue, VkSemaphore waitSem, VkSemaphore signalSem) = 0;
 };
 
 class Q_VULKAN_EXPORT QVulkanRenderLoop

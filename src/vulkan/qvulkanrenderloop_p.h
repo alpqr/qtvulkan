@@ -39,10 +39,10 @@
 
 #include "qvulkanrenderloop.h"
 #include <QObject>
-#include <QQueue>
-#include <QThread>
-#include <QMutex>
-#include <QWaitCondition>
+#include <queue>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
 
 //
 //  W A R N I N G
@@ -58,6 +58,7 @@
 QT_BEGIN_NAMESPACE
 
 class QVulkanRenderThread;
+class QVulkanRenderThreadEvent;
 
 class QVulkanRenderLoopPrivate : public QObject
 {
@@ -67,7 +68,7 @@ public:
 
     bool eventFilter(QObject *watched, QEvent *event) override;
 
-    void postThreadEvent(QEvent *e, bool lock = true);
+    void postThreadEvent(QVulkanRenderThreadEvent *e, bool needsLock = true);
 
     void init();
     void cleanup();
@@ -97,11 +98,7 @@ public:
     QVulkanFunctions *f;
 
     WId m_winId;
-#ifdef Q_OS_LINUX
-    xcb_connection_t *m_xcbConnection;
-    xcb_visualid_t m_xcbVisualId;
-#endif
-    QSize m_windowSize;
+    std::pair<uint32_t, uint32_t> m_windowSize;
     bool m_inited = false;
 
     PFN_vkCreateDebugReportCallbackEXT vkCreateDebugReportCallbackEXT;
@@ -149,9 +146,6 @@ public:
 #if defined(Q_OS_WIN)
     PFN_vkCreateWin32SurfaceKHR vkCreateWin32SurfaceKHR;
     PFN_vkGetPhysicalDeviceWin32PresentationSupportKHR vkGetPhysicalDeviceWin32PresentationSupportKHR;
-#elif defined(Q_OS_LINUX)
-    PFN_vkCreateXcbSurfaceKHR vkCreateXcbSurfaceKHR;
-    PFN_vkGetPhysicalDeviceXcbPresentationSupportKHR vkGetPhysicalDeviceXcbPresentationSupportKHR;
 #endif
 
     PFN_vkDestroySurfaceKHR vkDestroySurfaceKHR;
@@ -167,87 +161,103 @@ public:
     PFN_vkQueuePresentKHR vkQueuePresentKHR;
 };
 
-class QVulkanRenderThreadEventQueue : public QQueue<QEvent *>
+class QVulkanRenderThreadEvent
 {
 public:
-    void addEvent(QEvent *e);
-    QEvent *takeEvent(bool wait);
+    QVulkanRenderThreadEvent(int type) : m_type(type) { }
+    int type() const { return m_type; }
+    static const int Base = 1;
+
+private:
+    int m_type;
+};
+
+class QVulkanRenderThreadExposeEvent : public QVulkanRenderThreadEvent
+{
+public:
+    static const int Type = QVulkanRenderThreadEvent::Base + 1;
+    QVulkanRenderThreadExposeEvent() : QVulkanRenderThreadEvent(Type) { }
+};
+
+class QVulkanRenderThreadObscureEvent : public QVulkanRenderThreadEvent
+{
+public:
+    static const int Type = QVulkanRenderThreadEvent::Base + 2;
+    QVulkanRenderThreadObscureEvent() : QVulkanRenderThreadEvent(Type) { }
+};
+
+class QVulkanRenderThreadResizeEvent : public QVulkanRenderThreadEvent
+{
+public:
+    static const int Type = QVulkanRenderThreadEvent::Base + 3;
+    QVulkanRenderThreadResizeEvent() : QVulkanRenderThreadEvent(Type) { }
+};
+
+class QVulkanRenderThreadUpdateEvent : public QVulkanRenderThreadEvent
+{
+public:
+    static const int Type = QVulkanRenderThreadEvent::Base + 4;
+    QVulkanRenderThreadUpdateEvent() : QVulkanRenderThreadEvent(Type) { }
+};
+
+class QVulkanRenderThreadFrameQueuedEvent : public QVulkanRenderThreadEvent
+{
+public:
+    static const int Type = QVulkanRenderThreadEvent::Base + 5;
+    QVulkanRenderThreadFrameQueuedEvent() : QVulkanRenderThreadEvent(Type) { }
+};
+
+class QVulkanRenderThreadDestroyEvent : public QVulkanRenderThreadEvent
+{
+public:
+    static const int Type = QVulkanRenderThreadEvent::Base + 6;
+    QVulkanRenderThreadDestroyEvent() : QVulkanRenderThreadEvent(Type) { }
+};
+
+class QVulkanRenderThreadEventQueue
+{
+public:
+    void addEvent(QVulkanRenderThreadEvent *e);
+    QVulkanRenderThreadEvent *takeEvent(bool wait);
     bool hasMoreEvents();
 
 private:
-    QMutex m_mutex;
-    QWaitCondition m_condition;
+    std::queue<QVulkanRenderThreadEvent *> m_queue;
+    std::mutex m_mutex;
+    std::condition_variable m_condition;
     bool m_waiting = false;
 };
 
-class QVulkanRenderThreadExposeEvent : public QEvent
-{
-public:
-    static const QEvent::Type Type = QEvent::Type(QEvent::User + 1);
-    QVulkanRenderThreadExposeEvent() : QEvent(Type) { }
-};
-
-class QVulkanRenderThreadObscureEvent : public QEvent
-{
-public:
-    static const QEvent::Type Type = QEvent::Type(QEvent::User + 2);
-    QVulkanRenderThreadObscureEvent() : QEvent(Type) { }
-};
-
-class QVulkanRenderThreadResizeEvent : public QEvent
-{
-public:
-    static const QEvent::Type Type = QEvent::Type(QEvent::User + 3);
-    QVulkanRenderThreadResizeEvent() : QEvent(Type) { }
-};
-
-class QVulkanRenderThreadUpdateEvent : public QEvent
-{
-public:
-    static const QEvent::Type Type = QEvent::Type(QEvent::User + 4);
-    QVulkanRenderThreadUpdateEvent() : QEvent(Type) { }
-};
-
-class QVulkanRenderThreadFrameQueuedEvent : public QEvent
-{
-public:
-    static const QEvent::Type Type = QEvent::Type(QEvent::User + 5);
-    QVulkanRenderThreadFrameQueuedEvent() : QEvent(Type) { }
-};
-
-class QVulkanRenderThreadDestroyEvent : public QEvent
-{
-public:
-    static const QEvent::Type Type = QEvent::Type(QEvent::User + 6);
-    QVulkanRenderThreadDestroyEvent() : QEvent(Type) { }
-};
-
-class QVulkanRenderThread : public QThread
+class QVulkanRenderThread
 {
 public:
     QVulkanRenderThread(QVulkanRenderLoopPrivate *d_ptr) : d(d_ptr) { }
 
-    void run() override;
+    void start();
 
     void processEvents();
     void processEventsAndWaitForMore();
-    void postEvent(QEvent *e);
+    void postEvent(QVulkanRenderThreadEvent *e);
 
-    QMutex *mutex() { return &m_mutex; }
-    QWaitCondition *waitCondition() { return &m_condition; }
+    std::thread::id id() const { return t.get_id(); }
+    void join() { t.join(); }
+    std::mutex *mutex() { return &m_mutex; }
+    std::condition_variable *waitCondition() { return &m_condition; }
     void setActive() { m_active = true; }
     void setUpdatePending();
 
 private:
-    void processEvent(QEvent *e);
+    void run();
+    void processEvent(QVulkanRenderThreadEvent *e);
     void obscure();
     void resize();
 
+    std::thread t;
     QVulkanRenderLoopPrivate *d;
     QVulkanRenderThreadEventQueue m_eventQueue;
     volatile bool m_active;
-    QMutex m_mutex;
-    QWaitCondition m_condition;
+    std::mutex m_mutex;
+    std::condition_variable m_condition;
     uint m_sleeping : 1;
     uint m_stopEventProcessing : 1;
     uint m_pendingUpdate : 1;

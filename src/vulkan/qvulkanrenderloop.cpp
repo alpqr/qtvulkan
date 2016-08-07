@@ -38,15 +38,10 @@
 #include "qvulkanrenderloop_p.h"
 #include <QVulkanFunctions>
 #include <qalgorithms.h>
-#include <QVector>
 #include <QGuiApplication>
 #include <QDebug>
 #include <QElapsedTimer>
-
-#ifdef Q_OS_LINUX
-#include <qpa/qplatformnativeinterface.h>
-#include <QtPlatformHeaders/qxcbwindowfunctions.h>
-#endif
+#include <vector>
 
 QT_BEGIN_NAMESPACE
 
@@ -149,7 +144,7 @@ void QVulkanRenderLoop::update()
     if (!d->m_inited)
         return;
 
-    if (QThread::currentThread() == d->m_thread)
+    if (std::this_thread::get_id() == d->m_thread->id())
         d->m_thread->setUpdatePending();
     else
         d->postThreadEvent(new QVulkanRenderThreadUpdateEvent);
@@ -160,7 +155,7 @@ void QVulkanRenderLoop::frameQueued()
     if (!d->m_inited)
         return;
 
-    if (QThread::currentThread() == d->m_thread)
+    if (std::this_thread::get_id() == d->m_thread->id())
         d->endFrame();
     else
         d->postThreadEvent(new QVulkanRenderThreadFrameQueuedEvent);
@@ -248,7 +243,7 @@ QVulkanRenderLoopPrivate::~QVulkanRenderLoopPrivate()
 {
     if (m_thread) {
         postThreadEvent(new QVulkanRenderThreadDestroyEvent);
-        m_thread->wait();
+        m_thread->join();
         delete m_thread;
     }
 }
@@ -265,11 +260,8 @@ bool QVulkanRenderLoopPrivate::eventFilter(QObject *watched, QEvent *event)
             }
             m_thread->mutex()->lock();
             m_winId = window->winId();
-#ifdef Q_OS_LINUX
-            m_xcbConnection = static_cast<xcb_connection_t *>(qGuiApp->platformNativeInterface()->nativeResourceForIntegration(QByteArrayLiteral("connection")));
-            m_xcbVisualId = QXcbWindowFunctions::visualId(window);
-#endif
-            m_windowSize = window->size();
+            const QSize wsize = window->size();
+            m_windowSize = std::make_pair(wsize.width(), wsize.height());
             postThreadEvent(new QVulkanRenderThreadExposeEvent, false);
         } else if (m_inited) {
             postThreadEvent(new QVulkanRenderThreadObscureEvent);
@@ -277,7 +269,8 @@ bool QVulkanRenderLoopPrivate::eventFilter(QObject *watched, QEvent *event)
     } else if (event->type() == QEvent::Resize) {
         if (m_inited && window->isExposed()) {
             m_thread->mutex()->lock();
-            m_windowSize = window->size();
+            const QSize wsize = window->size();
+            m_windowSize = std::make_pair(wsize.width(), wsize.height());
             postThreadEvent(new QVulkanRenderThreadResizeEvent, false);
         }
     }
@@ -285,46 +278,45 @@ bool QVulkanRenderLoopPrivate::eventFilter(QObject *watched, QEvent *event)
     return false;
 }
 
-void QVulkanRenderLoopPrivate::postThreadEvent(QEvent *e, bool lock)
+void QVulkanRenderLoopPrivate::postThreadEvent(QVulkanRenderThreadEvent *e, bool needsLock)
 {
-    if (lock)
-        m_thread->mutex()->lock();
+    std::unique_lock<std::mutex> lock(*m_thread->mutex(), std::defer_lock);
+    if (needsLock)
+        lock.lock();
     m_thread->postEvent(e);
-    m_thread->waitCondition()->wait(m_thread->mutex());
-    m_thread->mutex()->unlock();
+    m_thread->waitCondition()->wait(lock);
+    if (!needsLock)
+        m_thread->mutex()->unlock();
 }
 
-void QVulkanRenderThreadEventQueue::addEvent(QEvent *e)
+void QVulkanRenderThreadEventQueue::addEvent(QVulkanRenderThreadEvent *e)
 {
-    m_mutex.lock();
-    enqueue(e);
+    std::unique_lock<std::mutex> lock(m_mutex);
+    m_queue.push(e);
     if (m_waiting)
-        m_condition.wakeOne();
-    m_mutex.unlock();
+        m_condition.notify_one();
 }
 
-QEvent *QVulkanRenderThreadEventQueue::takeEvent(bool wait)
+QVulkanRenderThreadEvent *QVulkanRenderThreadEventQueue::takeEvent(bool wait)
 {
-    m_mutex.lock();
-    if (isEmpty() && wait) {
+    std::unique_lock<std::mutex> lock(m_mutex);
+    if (m_queue.empty() && wait) {
         m_waiting = true;
-        m_condition.wait(&m_mutex);
+        m_condition.wait(lock);
         m_waiting = false;
     }
-    QEvent *e = dequeue();
-    m_mutex.unlock();
+    QVulkanRenderThreadEvent *e = m_queue.front();
+    m_queue.pop();
     return e;
 }
 
 bool QVulkanRenderThreadEventQueue::hasMoreEvents()
 {
-    m_mutex.lock();
-    bool has = !isEmpty();
-    m_mutex.unlock();
-    return has;
+    std::unique_lock<std::mutex> lock(m_mutex);
+    return !m_queue.empty();
 }
 
-void QVulkanRenderThread::postEvent(QEvent *e)
+void QVulkanRenderThread::postEvent(QVulkanRenderThreadEvent *e)
 {
     m_eventQueue.addEvent(e);
 }
@@ -332,7 +324,7 @@ void QVulkanRenderThread::postEvent(QEvent *e)
 void QVulkanRenderThread::processEvents()
 {
     while (m_eventQueue.hasMoreEvents()) {
-        QEvent *e = m_eventQueue.takeEvent(false);
+        QVulkanRenderThreadEvent *e = m_eventQueue.takeEvent(false);
         processEvent(e);
         delete e;
     }
@@ -342,15 +334,15 @@ void QVulkanRenderThread::processEventsAndWaitForMore()
 {
     m_stopEventProcessing = false;
     while (!m_stopEventProcessing) {
-        QEvent *e = m_eventQueue.takeEvent(true);
+        QVulkanRenderThreadEvent *e = m_eventQueue.takeEvent(true);
         processEvent(e);
         delete e;
     }
 }
 
-void QVulkanRenderThread::processEvent(QEvent *e)
+void QVulkanRenderThread::processEvent(QVulkanRenderThreadEvent *e)
 {
-    switch (int(e->type())) {
+    switch (e->type()) {
     case QVulkanRenderThreadExposeEvent::Type:
         m_mutex.lock();
         if (Q_UNLIKELY(debug_render()))
@@ -360,7 +352,7 @@ void QVulkanRenderThread::processEvent(QEvent *e)
         m_pendingUpdate = true;
         if (m_sleeping)
             m_stopEventProcessing = true;
-        m_condition.wakeOne();
+        m_condition.notify_one();
         m_mutex.unlock();
         break;
     case QVulkanRenderThreadObscureEvent::Type:
@@ -372,7 +364,7 @@ void QVulkanRenderThread::processEvent(QEvent *e)
         } else {
             m_pendingObscure = true;
         }
-        m_condition.wakeOne();
+        m_condition.notify_one();
         m_mutex.unlock();
         break;
     case QVulkanRenderThreadResizeEvent::Type:
@@ -384,13 +376,13 @@ void QVulkanRenderThread::processEvent(QEvent *e)
         } else {
             m_pendingResize = true;
         }
-        m_condition.wakeOne();
+        m_condition.notify_one();
         m_mutex.unlock();
         break;
     case QVulkanRenderThreadUpdateEvent::Type:
         m_mutex.lock();
         setUpdatePending();
-        m_condition.wakeOne();
+        m_condition.notify_one();
         m_mutex.unlock();
         break;
     case QVulkanRenderThreadFrameQueuedEvent::Type:
@@ -400,7 +392,7 @@ void QVulkanRenderThread::processEvent(QEvent *e)
         d->endFrame();
         if (m_sleeping)
             m_stopEventProcessing = true;
-        m_condition.wakeOne();
+        m_condition.notify_one();
         m_mutex.unlock();
         break;
     case QVulkanRenderThreadDestroyEvent::Type:
@@ -414,7 +406,7 @@ void QVulkanRenderThread::processEvent(QEvent *e)
         } else {
             m_pendingDestroy = true;
         }
-        m_condition.wakeOne();
+        m_condition.notify_one();
         m_mutex.unlock();
         break;
     default:
@@ -452,7 +444,12 @@ void QVulkanRenderThread::resize()
     d->recreateSwapChain();
 
     if (d->m_worker)
-        d->m_worker->resize(d->m_windowSize);
+        d->m_worker->resize(d->m_windowSize.first, d->m_windowSize.second);
+}
+
+void QVulkanRenderThread::start()
+{
+    t = std::thread(&QVulkanRenderThread::run, this);
 }
 
 void QVulkanRenderThread::run()
@@ -525,7 +522,7 @@ void QVulkanRenderLoopPrivate::init()
 
     if (m_worker) {
         m_worker->init();
-        m_worker->resize(m_windowSize);
+        m_worker->resize(m_windowSize.first, m_windowSize.second);
     }
 }
 
@@ -599,16 +596,16 @@ void QVulkanRenderLoopPrivate::createDeviceAndSurface()
     f->vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
     if (Q_UNLIKELY(debug_render()))
         qDebug("%d instance layers", layerCount);
-    QVector<char *> enabledLayers;
+    std::vector<char *> enabledLayers;
     if (layerCount) {
-        QVector<VkLayerProperties> layerProps(layerCount);
+        std::vector<VkLayerProperties> layerProps(layerCount);
         f->vkEnumerateInstanceLayerProperties(&layerCount, layerProps.data());
         for (const VkLayerProperties &p : qAsConst(layerProps)) {
             if (m_flags.testFlag(QVulkanRenderLoop::EnableValidation) && !strcmp(p.layerName, "VK_LAYER_LUNARG_standard_validation"))
-                enabledLayers.append(strdup(p.layerName));
+                enabledLayers.push_back(strdup(p.layerName));
         }
     }
-    if (!enabledLayers.isEmpty())
+    if (!enabledLayers.empty())
         if (Q_UNLIKELY(debug_render()))
             qDebug() << "enabling instance layers" << enabledLayers;
 
@@ -617,22 +614,22 @@ void QVulkanRenderLoopPrivate::createDeviceAndSurface()
     f->vkEnumerateInstanceExtensionProperties(nullptr, &extCount, nullptr);
     if (Q_UNLIKELY(debug_render()))
         qDebug("%d instance extensions", extCount);
-    QVector<char *> enabledExtensions;
+    std::vector<char *> enabledExtensions;
     if (extCount) {
-        QVector<VkExtensionProperties> extProps(extCount);
+        std::vector<VkExtensionProperties> extProps(extCount);
         f->vkEnumerateInstanceExtensionProperties(nullptr, &extCount, extProps.data());
         for (const VkExtensionProperties &p : qAsConst(extProps)) {
             if (!strcmp(p.extensionName, "VK_EXT_debug_report")) {
-                enabledExtensions.append(strdup(p.extensionName));
+                enabledExtensions.push_back(strdup(p.extensionName));
                 m_hasDebug = true;
             } else if (!strcmp(p.extensionName, "VK_KHR_surface")
                        || !strcmp(p.extensionName, "VK_KHR_win32_surface"))
             {
-                enabledExtensions.append(strdup(p.extensionName));
+                enabledExtensions.push_back(strdup(p.extensionName));
             }
         }
     }
-    if (!enabledExtensions.isEmpty())
+    if (!enabledExtensions.empty())
         if (Q_UNLIKELY(debug_render()))
             qDebug() << "enabling instance extensions" << enabledExtensions;
 
@@ -640,13 +637,13 @@ void QVulkanRenderLoopPrivate::createDeviceAndSurface()
     memset(&instInfo, 0, sizeof(instInfo));
     instInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     instInfo.pApplicationInfo = &appInfo;
-    if (!enabledLayers.isEmpty()) {
-        instInfo.enabledLayerCount = enabledLayers.count();
-        instInfo.ppEnabledLayerNames = enabledLayers.constData();
+    if (!enabledLayers.empty()) {
+        instInfo.enabledLayerCount = uint32_t(enabledLayers.size());
+        instInfo.ppEnabledLayerNames = enabledLayers.data();
     }
-    if (!enabledExtensions.isEmpty()) {
-        instInfo.enabledExtensionCount = enabledExtensions.count();
-        instInfo.ppEnabledExtensionNames = enabledExtensions.constData();
+    if (!enabledExtensions.empty()) {
+        instInfo.enabledExtensionCount = uint32_t(enabledExtensions.size());
+        instInfo.ppEnabledExtensionNames = enabledExtensions.data();
     }
 
     VkResult err = f->vkCreateInstance(&instInfo, nullptr, &m_vkInst);
@@ -699,17 +696,17 @@ void QVulkanRenderLoopPrivate::createDeviceAndSurface()
         qDebug("%d device layers", layerCount);
     enabledLayers.clear();
     if (layerCount) {
-        QVector<VkLayerProperties> layerProps(layerCount);
+        std::vector<VkLayerProperties> layerProps(layerCount);
         f->vkEnumerateDeviceLayerProperties(m_vkPhysDev, &layerCount, layerProps.data());
         for (const VkLayerProperties &p : qAsConst(layerProps)) {
             // If the validation layer is enabled for the instance, it has to
             // be enabled for the device too, otherwise be prepared for
             // mysterious errors...
             if (m_flags.testFlag(QVulkanRenderLoop::EnableValidation) && !strcmp(p.layerName, "VK_LAYER_LUNARG_standard_validation"))
-                enabledLayers.append(strdup(p.layerName));
+                enabledLayers.push_back(strdup(p.layerName));
         }
     }
-    if (!enabledLayers.isEmpty())
+    if (!enabledLayers.empty())
         if (Q_UNLIKELY(debug_render()))
             qDebug() << "enabling device layers" << enabledLayers;
 
@@ -719,26 +716,26 @@ void QVulkanRenderLoopPrivate::createDeviceAndSurface()
         qDebug("%d device extensions", extCount);
     enabledExtensions.clear();
     if (extCount) {
-        QVector<VkExtensionProperties> extProps(extCount);
+        std::vector<VkExtensionProperties> extProps(extCount);
         f->vkEnumerateDeviceExtensionProperties(m_vkPhysDev, nullptr, &extCount, extProps.data());
         for (const VkExtensionProperties &p : qAsConst(extProps)) {
             if (!strcmp(p.extensionName, "VK_KHR_swapchain")
                 || !strcmp(p.extensionName, "VK_NV_glsl_shader"))
             {
-                enabledExtensions.append(strdup(p.extensionName));
+                enabledExtensions.push_back(strdup(p.extensionName));
             }
         }
     }
-    if (!enabledExtensions.isEmpty())
+    if (!enabledExtensions.empty())
         if (Q_UNLIKELY(debug_render()))
             qDebug() << "enabling device extensions" << enabledExtensions;
 
     uint32_t queueCount = 0;
     f->vkGetPhysicalDeviceQueueFamilyProperties(m_vkPhysDev, &queueCount, nullptr);
-    QVector<VkQueueFamilyProperties> queueFamilyProps(queueCount);
+    std::vector<VkQueueFamilyProperties> queueFamilyProps(queueCount);
     f->vkGetPhysicalDeviceQueueFamilyProperties(m_vkPhysDev, &queueCount, queueFamilyProps.data());
     int gfxQueueFamilyIdx = -1;
-    for (int i = 0; i < queueFamilyProps.count(); ++i) {
+    for (int i = 0; i < queueFamilyProps.size(); ++i) {
         if (Q_UNLIKELY(debug_render()))
             qDebug("queue family %d: flags=0x%x count=%d", i, queueFamilyProps[i].queueFlags, queueFamilyProps[i].queueCount);
         bool ok = (queueFamilyProps[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0;
@@ -764,13 +761,13 @@ void QVulkanRenderLoopPrivate::createDeviceAndSurface()
     devInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     devInfo.queueCreateInfoCount = 1;
     devInfo.pQueueCreateInfos = &queueInfo;
-    if (!enabledLayers.isEmpty()) {
-        devInfo.enabledLayerCount = enabledLayers.count();
-        devInfo.ppEnabledLayerNames = enabledLayers.constData();
+    if (!enabledLayers.empty()) {
+        devInfo.enabledLayerCount = uint32_t(enabledLayers.size());
+        devInfo.ppEnabledLayerNames = enabledLayers.data();
     }
-    if (!enabledExtensions.isEmpty()) {
-        devInfo.enabledExtensionCount = enabledExtensions.count();
-        devInfo.ppEnabledExtensionNames = enabledExtensions.constData();
+    if (!enabledExtensions.empty()) {
+        devInfo.enabledExtensionCount = uint32_t(enabledExtensions.size());
+        devInfo.ppEnabledExtensionNames = enabledExtensions.data();
     }
 
     err = f->vkCreateDevice(m_vkPhysDev, &devInfo, nullptr, &m_vkDev);
@@ -845,18 +842,6 @@ void QVulkanRenderLoopPrivate::createSurface()
     VkResult err = vkCreateWin32SurfaceKHR(m_vkInst, &surfaceInfo, nullptr, &m_surface);
     if (err != VK_SUCCESS)
         qFatal("Failed to create Win32 surface: %d", err);
-#elif defined(Q_OS_LINUX)
-    vkCreateXcbSurfaceKHR = reinterpret_cast<PFN_vkCreateXcbSurfaceKHR>(f->vkGetInstanceProcAddr(m_vkInst, "vkCreateXcbSurfaceKHR"));
-    vkGetPhysicalDeviceXcbPresentationSupportKHR = reinterpret_cast<PFN_vkGetPhysicalDeviceXcbPresentationSupportKHR>(f->vkGetInstanceProcAddr(m_vkInst, "vkGetPhysicalDeviceXcbPresentationSupportKHR"));
-
-    VkXcbSurfaceCreateInfoKHR surfaceInfo;
-    memset(&surfaceInfo, 0, sizeof(surfaceInfo));
-    surfaceInfo.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR;
-    surfaceInfo.connection = m_xcbConnection;
-    surfaceInfo.window = m_winId;
-    VkResult err = vkCreateXcbSurfaceKHR(m_vkInst, &surfaceInfo, nullptr, &m_surface);
-    if (err != VK_SUCCESS)
-        qFatal("Failed to create xcb surface: %d", err);
 #endif
 
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
@@ -921,8 +906,6 @@ bool QVulkanRenderLoopPrivate::physicalDeviceSupportsPresent(int queueFamilyIdx)
     bool ok = false;
 #if defined(Q_OS_WIN)
     ok |= bool(vkGetPhysicalDeviceWin32PresentationSupportKHR(m_vkPhysDev, queueFamilyIdx));
-#elif defined(Q_OS_LINUX)
-    ok |= bool(vkGetPhysicalDeviceXcbPresentationSupportKHR(m_vkPhysDev, queueFamilyIdx, m_xcbConnection, m_xcbVisualId));
 #endif
     VkBool32 supported = false;
     vkGetPhysicalDeviceSurfaceSupportKHR(m_vkPhysDev, queueFamilyIdx, m_surface, &supported);
@@ -932,7 +915,7 @@ bool QVulkanRenderLoopPrivate::physicalDeviceSupportsPresent(int queueFamilyIdx)
 
 void QVulkanRenderLoopPrivate::recreateSwapChain()
 {
-    if (m_windowSize.isEmpty())
+    if (!m_windowSize.first || !m_windowSize.second)
         return;
 
     if (!vkCreateSwapchainKHR) {
@@ -947,7 +930,7 @@ void QVulkanRenderLoopPrivate::recreateSwapChain()
     uint32_t formatCount = 0;
     vkGetPhysicalDeviceSurfaceFormatsKHR(m_vkPhysDev, m_surface, &formatCount, nullptr);
     if (formatCount) {
-        QVector<VkSurfaceFormatKHR> formats(formatCount);
+        std::vector<VkSurfaceFormatKHR> formats(formatCount);
         vkGetPhysicalDeviceSurfaceFormatsKHR(m_vkPhysDev, m_surface, &formatCount, formats.data());
         if (formats[0].format != VK_FORMAT_UNDEFINED) {
             m_colorFormat = formats[0].format;
@@ -965,9 +948,9 @@ void QVulkanRenderLoopPrivate::recreateSwapChain()
 
     VkExtent2D bufferSize = surfaceCaps.currentExtent;
     if (bufferSize.width == uint32_t(-1))
-        bufferSize.width = m_windowSize.width();
+        bufferSize.width = m_windowSize.first;
     if (bufferSize.height == uint32_t(-1))
-        bufferSize.height = m_windowSize.height();
+        bufferSize.height = m_windowSize.second;
 
     VkSurfaceTransformFlagBitsKHR preTransform = surfaceCaps.currentTransform;
     VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
@@ -976,11 +959,11 @@ void QVulkanRenderLoopPrivate::recreateSwapChain()
         uint32_t presModeCount = 0;
         vkGetPhysicalDeviceSurfacePresentModesKHR(m_vkPhysDev, m_surface, &presModeCount, nullptr);
         if (presModeCount > 0) {
-            QVector<VkPresentModeKHR> presModes(presModeCount);
+            std::vector<VkPresentModeKHR> presModes(presModeCount);
             if (vkGetPhysicalDeviceSurfacePresentModesKHR(m_vkPhysDev, m_surface, &presModeCount, presModes.data()) == VK_SUCCESS) {
-                if (presModes.contains(VK_PRESENT_MODE_MAILBOX_KHR))
+                if (std::find(presModes.begin(), presModes.end(), VK_PRESENT_MODE_MAILBOX_KHR) != presModes.end())
                     presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
-                else if (presModes.contains(VK_PRESENT_MODE_IMMEDIATE_KHR))
+                else if (std::find(presModes.begin(), presModes.end(), VK_PRESENT_MODE_IMMEDIATE_KHR) != presModes.end())
                     presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
             }
         }

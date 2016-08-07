@@ -1,5 +1,5 @@
 TEMPLATE = lib
-QT += core-private gui-private quick
+QT += core-private gui-private
 TARGET = QtVulkan
 
 load(qt_module)

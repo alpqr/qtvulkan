@@ -115,7 +115,7 @@ QVulkanFunctions *QVulkanRenderLoop::functions()
 void QVulkanRenderLoop::setFlags(Flags flags)
 {
     if (d->m_inited) {
-        qWarning("Cannot change flags after rendering has started");
+        log("Cannot change flags after rendering has started");
         return;
     }
     d->m_flags = flags;
@@ -124,11 +124,11 @@ void QVulkanRenderLoop::setFlags(Flags flags)
 void QVulkanRenderLoop::setFramesInFlight(int frameCount)
 {
     if (d->m_inited) {
-        qWarning("Cannot change number of frames in flight after rendering has started");
+        log("Cannot change number of frames in flight after rendering has started");
         return;
     }
     if (frameCount < 1 || frameCount > QVulkanRenderLoopPrivate::MAX_FRAMES_IN_FLIGHT) {
-        qWarning("Invalid frames-in-flight count");
+        log("Invalid frames-in-flight count");
         return;
     }
     d->m_framesInFlight = frameCount;
@@ -137,7 +137,7 @@ void QVulkanRenderLoop::setFramesInFlight(int frameCount)
 void QVulkanRenderLoop::setWorker(QVulkanFrameWorker *worker)
 {
     if (d->m_inited) {
-        qWarning("Cannot change worker after rendering has started");
+        log("Cannot change worker after rendering has started");
         return;
     }
     if (worker == d->m_worker)
@@ -416,7 +416,7 @@ void QVulkanRenderThread::processEvent(QVulkanRenderThreadEvent *e)
         m_mutex.unlock();
         break;
     default:
-        qWarning("Unknown render thread event %d", e->type());
+        log("Unknown render thread event %d", e->type());
         break;
     }
 }
@@ -657,8 +657,10 @@ void QVulkanRenderLoopPrivate::createDeviceAndSurface()
     }
 
     VkResult err = f->vkCreateInstance(&instInfo, nullptr, &m_vkInst);
-    if (err != VK_SUCCESS)
-        qFatal("Failed to create Vulkan instance: %d", err);
+    if (err != VK_SUCCESS) {
+        log("Failed to create Vulkan instance: %d", err);
+        abort();
+    }
 
     for (auto s : enabledLayers) free(s);
     for (auto s : enabledExtensions) free(s);
@@ -675,7 +677,7 @@ void QVulkanRenderLoopPrivate::createDeviceAndSurface()
         dbgCallbackInfo.pfnCallback = &debugCallbackFunc;
         err = vkCreateDebugReportCallbackEXT(m_vkInst, &dbgCallbackInfo, nullptr, &m_debugCallback);
         if (err != VK_SUCCESS) {
-            qWarning("Failed to create debug report callback: %d", err);
+            log("Failed to create debug report callback: %d", err);
             m_hasDebug = false;
         }
     }
@@ -686,13 +688,17 @@ void QVulkanRenderLoopPrivate::createDeviceAndSurface()
     f->vkEnumeratePhysicalDevices(m_vkInst, &devCount, nullptr);
     if (debug_render())
         log("%d physical devices", devCount);
-    if (!devCount)
-        qFatal("No physical devices");
+    if (!devCount) {
+        log("No physical devices");
+        abort();
+    }
     // Just pick the first physical device for now.
     devCount = 1;
     err = f->vkEnumeratePhysicalDevices(m_vkInst, &devCount, &m_vkPhysDev);
-    if (err != VK_SUCCESS)
-        qFatal("Failed to enumerate physical devices: %d", err);
+    if (err != VK_SUCCESS) {
+        log("Failed to enumerate physical devices: %d", err);
+        abort();
+    }
 
     f->vkGetPhysicalDeviceProperties(m_vkPhysDev, &m_physDevProps);
     if (debug_render())
@@ -759,8 +765,10 @@ void QVulkanRenderLoopPrivate::createDeviceAndSurface()
             break;
         }
     }
-    if (gfxQueueFamilyIdx == -1)
-        qFatal("No presentable graphics queue family found");
+    if (gfxQueueFamilyIdx == -1) {
+        log("No presentable graphics queue family found");
+        abort();
+    }
 
     VkDeviceQueueCreateInfo queueInfo;
     memset(&queueInfo, 0, sizeof(queueInfo));
@@ -785,8 +793,10 @@ void QVulkanRenderLoopPrivate::createDeviceAndSurface()
     }
 
     err = f->vkCreateDevice(m_vkPhysDev, &devInfo, nullptr, &m_vkDev);
-    if (err != VK_SUCCESS)
-        qFatal("Failed to create device: %d", err);
+    if (err != VK_SUCCESS) {
+        log("Failed to create device: %d", err);
+        abort();
+    }
 
     for (auto s : enabledLayers) free(s);
     for (auto s : enabledExtensions) free(s);
@@ -798,8 +808,10 @@ void QVulkanRenderLoopPrivate::createDeviceAndSurface()
     poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     poolInfo.queueFamilyIndex = gfxQueueFamilyIdx;
     err = f->vkCreateCommandPool(m_vkDev, &poolInfo, nullptr, &m_vkCmdPool);
-    if (err != VK_SUCCESS)
-        qFatal("Failed to create command pool: %d", err);
+    if (err != VK_SUCCESS) {
+        log("Failed to create command pool: %d", err);
+        abort();
+    }
 
     m_hostVisibleMemIndex = 0;
     bool hostVisibleMemIndexSet = false;
@@ -854,8 +866,10 @@ void QVulkanRenderLoopPrivate::createSurface()
     surfaceInfo.hinstance = GetModuleHandle(nullptr);
     surfaceInfo.hwnd = HWND(m_winId);
     VkResult err = vkCreateWin32SurfaceKHR(m_vkInst, &surfaceInfo, nullptr, &m_surface);
-    if (err != VK_SUCCESS)
-        qFatal("Failed to create Win32 surface: %d", err);
+    if (err != VK_SUCCESS) {
+        log("Failed to create Win32 surface: %d", err);
+        abort();
+    }
 #endif
 
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
@@ -1005,8 +1019,10 @@ void QVulkanRenderLoopPrivate::recreateSwapChain()
         log("creating new swap chain of %d buffers, size %dx%d", reqBufferCount, bufferSize.width, bufferSize.height);
 
     VkResult err = vkCreateSwapchainKHR(m_vkDev, &swapChainInfo, nullptr, &m_swapChain);
-    if (err != VK_SUCCESS)
-        qFatal("Failed to create swap chain: %d", err);
+    if (err != VK_SUCCESS) {
+        log("Failed to create swap chain: %d", err);
+        abort();
+    }
 
     if (oldSwapChain != VK_NULL_HANDLE) {
         for (uint32_t i = 0; i < m_swapChainBufferCount; ++i)
@@ -1016,12 +1032,16 @@ void QVulkanRenderLoopPrivate::recreateSwapChain()
 
     m_swapChainBufferCount = 0;
     err = vkGetSwapchainImagesKHR(m_vkDev, m_swapChain, &m_swapChainBufferCount, nullptr);
-    if (err != VK_SUCCESS || m_swapChainBufferCount < 2)
-        qFatal("Failed to get swapchain images: %d (count=%d)", err, m_swapChainBufferCount);
+    if (err != VK_SUCCESS || m_swapChainBufferCount < 2) {
+        log("Failed to get swapchain images: %d (count=%d)", err, m_swapChainBufferCount);
+        abort();
+    }
 
     err = vkGetSwapchainImagesKHR(m_vkDev, m_swapChain, &m_swapChainBufferCount, m_swapChainImages);
-    if (err != VK_SUCCESS)
-        qFatal("Failed to get swapchain images: %d", err);
+    if (err != VK_SUCCESS) {
+        log("Failed to get swapchain images: %d", err);
+        abort();
+    }
 
     if (debug_render())
         log("actual swap chain buffer count: %d", m_swapChainBufferCount);
@@ -1040,8 +1060,10 @@ void QVulkanRenderLoopPrivate::recreateSwapChain()
         imgViewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         imgViewInfo.subresourceRange.levelCount = imgViewInfo.subresourceRange.layerCount = 1;
         err = f->vkCreateImageView(m_vkDev, &imgViewInfo, nullptr, &m_swapChainImageViews[i]);
-        if (err != VK_SUCCESS)
-            qFatal("Failed to create swapchain image view %d: %d", i, err);
+        if (err != VK_SUCCESS) {
+            log("Failed to create swapchain image view %d: %d", i, err);
+            abort();
+        }
     }
 
     m_currentSwapChainBuffer = 0;
@@ -1066,8 +1088,10 @@ void QVulkanRenderLoopPrivate::recreateSwapChain()
                 0
             };
             err = f->vkCreateFence(m_vkDev, &fenceInfo, nullptr, &m_frameFence[i]);
-            if (err != VK_SUCCESS)
-                qFatal("Failed to create fence: %d", err);
+            if (err != VK_SUCCESS) {
+                log("Failed to create fence: %d", err);
+                abort();
+            }
         } else {
             f->vkResetFences(m_vkDev, 1, &m_frameFence[i]);
         }
@@ -1078,23 +1102,31 @@ void QVulkanRenderLoopPrivate::recreateSwapChain()
         };
         if (m_acquireSem[i] == VK_NULL_HANDLE) {
             err = f->vkCreateSemaphore(m_vkDev, &semInfo, nullptr, &m_acquireSem[i]);
-            if (err != VK_SUCCESS)
-                qFatal("Failed to create acquire semaphore: %d", err);
+            if (err != VK_SUCCESS) {
+                log("Failed to create acquire semaphore: %d", err);
+                abort();
+            }
         }
         if (m_renderSem[i] == VK_NULL_HANDLE) {
             err = f->vkCreateSemaphore(m_vkDev, &semInfo, nullptr, &m_renderSem[i]);
-            if (err != VK_SUCCESS)
-                qFatal("Failed to create render semaphore: %d", err);
+            if (err != VK_SUCCESS) {
+                log("Failed to create render semaphore: %d", err);
+                abort();
+            }
         }
         if (m_workerWaitSem[i] == VK_NULL_HANDLE) {
             err = f->vkCreateSemaphore(m_vkDev, &semInfo, nullptr, &m_workerWaitSem[i]);
-            if (err != VK_SUCCESS)
-                qFatal("Failed to create worker wait semaphore: %d", err);
+            if (err != VK_SUCCESS) {
+                log("Failed to create worker wait semaphore: %d", err);
+                abort();
+            }
         }
         if (m_workerSignalSem[i] == VK_NULL_HANDLE) {
             err = f->vkCreateSemaphore(m_vkDev, &semInfo, nullptr, &m_workerSignalSem[i]);
-            if (err != VK_SUCCESS)
-                qFatal("Failed to create worker signal semaphore: %d", err);
+            if (err != VK_SUCCESS) {
+                log("Failed to create worker signal semaphore: %d", err);
+                abort();
+            }
         }
     }
 
@@ -1118,8 +1150,10 @@ void QVulkanRenderLoopPrivate::recreateSwapChain()
     imgInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
     imgInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
     err = f->vkCreateImage(m_vkDev, &imgInfo, nullptr, &m_ds);
-    if (err != VK_SUCCESS)
-        qFatal("Failed to create depth-stencil buffer: %d", err);
+    if (err != VK_SUCCESS) {
+        log("Failed to create depth-stencil buffer: %d", err);
+        abort();
+    }
 
     VkMemoryRequirements dsMemReq;
     f->vkGetImageMemoryRequirements(m_vkDev, m_ds, &dsMemReq);
@@ -1136,12 +1170,16 @@ void QVulkanRenderLoopPrivate::recreateSwapChain()
         log("allocating %lu bytes for depth-stencil", memInfo.allocationSize);
 
     err = f->vkAllocateMemory(m_vkDev, &memInfo, nullptr, &m_dsMem);
-    if (err != VK_SUCCESS)
-        qFatal("Failed to allocate depth-stencil memory: %d", err);
+    if (err != VK_SUCCESS) {
+        log("Failed to allocate depth-stencil memory: %d", err);
+        abort();
+    }
 
     err = f->vkBindImageMemory(m_vkDev, m_ds, m_dsMem, 0);
-    if (err != VK_SUCCESS)
-        qFatal("Failed to bind image memory for depth-stencil: %d", err);
+    if (err != VK_SUCCESS) {
+        log("Failed to bind image memory for depth-stencil: %d", err);
+        abort();
+    }
 
     transitionImage(m_frameCmdBuf[m_currentFrame][0], m_ds,
                     VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
@@ -1160,8 +1198,10 @@ void QVulkanRenderLoopPrivate::recreateSwapChain()
     imgViewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
     imgViewInfo.subresourceRange.levelCount = imgViewInfo.subresourceRange.layerCount = 1;
     err = f->vkCreateImageView(m_vkDev, &imgViewInfo, nullptr, &m_dsView);
-    if (err != VK_SUCCESS)
-        qFatal("Failed to create depth-stencil view: %d", err);
+    if (err != VK_SUCCESS) {
+        log("Failed to create depth-stencil view: %d", err);
+        abort();
+    }
 }
 
 void QVulkanRenderLoopPrivate::ensureFrameCmdBuf(int frame, int subIndex)
@@ -1176,14 +1216,18 @@ void QVulkanRenderLoopPrivate::ensureFrameCmdBuf(int frame, int subIndex)
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, nullptr, m_vkCmdPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1
     };
     VkResult err = f->vkAllocateCommandBuffers(m_vkDev, &cmdBufInfo, &m_frameCmdBuf[frame][subIndex]);
-    if (err != VK_SUCCESS)
-        qFatal("Failed to allocate frame command buffer: %d", err);
+    if (err != VK_SUCCESS) {
+        log("Failed to allocate frame command buffer: %d", err);
+        abort();
+    }
 
     VkCommandBufferBeginInfo cmdBufBeginInfo = {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, nullptr, 0, nullptr };
     err = f->vkBeginCommandBuffer(m_frameCmdBuf[frame][subIndex], &cmdBufBeginInfo);
-    if (err != VK_SUCCESS)
-        qFatal("Failed to begin frame command buffer: %d", err);
+    if (err != VK_SUCCESS) {
+        log("Failed to begin frame command buffer: %d", err);
+        abort();
+    }
 
     m_frameCmdBufRecording[frame] = true;
 }
@@ -1205,12 +1249,12 @@ bool QVulkanRenderLoopPrivate::beginFrame()
                                          &m_currentSwapChainBuffer);
     if (err != VK_SUCCESS) {
         if (err == VK_ERROR_OUT_OF_DATE_KHR) {
-            qWarning("out of date in acquire");
+            log("out of date in acquire");
             f->vkDeviceWaitIdle(m_vkDev);
             recreateSwapChain();
             return false;
         } else if (err != VK_SUBOPTIMAL_KHR) {
-            qWarning("Failed to acquire next swapchain image: %d", err);
+            log("Failed to acquire next swapchain image: %d", err);
             return false;
         }
     }
@@ -1238,8 +1282,10 @@ bool QVulkanRenderLoopPrivate::beginFrame()
 void QVulkanRenderLoopPrivate::submitFrameCmdBuf(VkSemaphore waitSem, VkSemaphore signalSem, int subIndex, bool fence)
 {
     VkResult err = f->vkEndCommandBuffer(m_frameCmdBuf[m_currentFrame][subIndex]);
-    if (err != VK_SUCCESS)
-        qFatal("Failed to end frame command buffer: %d", err);
+    if (err != VK_SUCCESS) {
+        log("Failed to end frame command buffer: %d", err);
+        abort();
+    }
 
     m_frameCmdBufRecording[m_currentFrame] = false;
 
@@ -1256,7 +1302,7 @@ void QVulkanRenderLoopPrivate::submitFrameCmdBuf(VkSemaphore waitSem, VkSemaphor
     submitInfo.pWaitDstStageMask = &psf;
     err = f->vkQueueSubmit(m_vkQueue, 1, &submitInfo, fence ? m_frameFence[m_currentFrame] : VK_NULL_HANDLE);
     if (err != VK_SUCCESS) {
-        qWarning("Failed to submit to command queue: %d", err);
+        log("Failed to submit to command queue: %d", err);
         return;
     }
 }
@@ -1290,12 +1336,12 @@ void QVulkanRenderLoopPrivate::endFrame()
     VkResult err = vkQueuePresentKHR(m_vkQueue, &presInfo);
     if (err != VK_SUCCESS) {
         if (err == VK_ERROR_OUT_OF_DATE_KHR) {
-            qWarning("out of date in present");
+            log("out of date in present");
             f->vkDeviceWaitIdle(m_vkDev);
             recreateSwapChain();
             return;
         } else if (err != VK_SUBOPTIMAL_KHR) {
-            qWarning("Failed to present: %d", err);
+            log("Failed to present: %d", err);
         }
     }
 

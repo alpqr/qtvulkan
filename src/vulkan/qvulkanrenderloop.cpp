@@ -238,7 +238,6 @@ VkFormat QVulkanRenderLoop::depthStencilFormat() const
 
 QVulkanRenderLoopPrivate::QVulkanRenderLoopPrivate(QVulkanRenderLoop *q_ptr, QWindow *window)
     : q(q_ptr),
-      m_window(window),
       f(QVulkanFunctions::instance())
 {
     window->installEventFilter(this);

@@ -702,8 +702,8 @@ void QVulkanRenderLoopPrivate::createDeviceAndSurface()
     f->vkGetPhysicalDeviceProperties(m_vkPhysDev, &m_physDevProps);
     if (debug_render())
         log("Device name: %s\nDriver version: %d.%d.%d", m_physDevProps.deviceName,
-               VK_VERSION_MAJOR(m_physDevProps.driverVersion), VK_VERSION_MINOR(m_physDevProps.driverVersion),
-               VK_VERSION_PATCH(m_physDevProps.driverVersion));
+            VK_VERSION_MAJOR(m_physDevProps.driverVersion), VK_VERSION_MINOR(m_physDevProps.driverVersion),
+            VK_VERSION_PATCH(m_physDevProps.driverVersion));
 
     layerCount = 0;
     f->vkEnumerateDeviceLayerProperties(m_vkPhysDev, &layerCount, nullptr);
@@ -1158,7 +1158,7 @@ void QVulkanRenderLoopPrivate::recreateSwapChain()
     f->vkGetImageMemoryRequirements(m_vkDev, m_ds, &dsMemReq);
     unsigned long memTypeIndex = 0;
     if (dsMemReq.memoryTypeBits)
-        _BitScanForward64(&memTypeIndex, dsMemReq.memoryTypeBits);
+        _BitScanForward(&memTypeIndex, dsMemReq.memoryTypeBits);
 
     VkMemoryAllocateInfo memInfo;
     memset(&memInfo, 0, sizeof(memInfo));

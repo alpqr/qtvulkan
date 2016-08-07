@@ -34,13 +34,8 @@
 **
 ****************************************************************************/
 
-#include "qvulkanrenderloop.h"
 #include "qvulkanrenderloop_p.h"
 #include <QVulkanFunctions>
-#include <qalgorithms.h>
-#include <QGuiApplication>
-#include <QDebug>
-#include <QElapsedTimer>
 #include <vector>
 
 QT_BEGIN_NAMESPACE
@@ -84,12 +79,23 @@ QT_BEGIN_NAMESPACE
     Here the prologue and epilogue need an extra command buffer per frame-in-flight since they are submitted separately.
  */
 
-
+#define STRINGIFY2(x) #x
+#define STRINGIFY(x) STRINGIFY2(x)
 #define DECLARE_DEBUG_VAR(variable) \
-    static bool debug_ ## variable() \
-    { static bool value = qgetenv("QVULKAN_DEBUG").contains(QT_STRINGIFY(variable)); return value; }
+    static inline bool debug_ ## variable() \
+    { static bool value = !strcmp(getenv("QVULKAN_DEBUG"), STRINGIFY(variable)); return value; }
 
 DECLARE_DEBUG_VAR(render)
+
+void log(const char *fmt, ...)
+{
+    char buf[1024];
+    va_list args;
+    va_start(args, fmt);
+    vsprintf_s(buf, sizeof(buf) - 1, fmt, args);
+    strcat(buf, "\n");
+    OutputDebugStringA(buf);
+}
 
 QVulkanRenderLoop::QVulkanRenderLoop(QWindow *window)
     : d(new QVulkanRenderLoopPrivate(this, window))
@@ -345,8 +351,8 @@ void QVulkanRenderThread::processEvent(QVulkanRenderThreadEvent *e)
     switch (e->type()) {
     case QVulkanRenderThreadExposeEvent::Type:
         m_mutex.lock();
-        if (Q_UNLIKELY(debug_render()))
-            qDebug("render thread - expose");
+        if (debug_render())
+            log("render thread - expose");
         if (!d->m_inited)
             d->init();
         m_pendingUpdate = true;
@@ -358,8 +364,8 @@ void QVulkanRenderThread::processEvent(QVulkanRenderThreadEvent *e)
     case QVulkanRenderThreadObscureEvent::Type:
         m_mutex.lock();
         if (!d->m_frameActive) {
-            if (Q_UNLIKELY(debug_render()))
-                qDebug("render thread - obscure");
+            if (debug_render())
+                log("render thread - obscure");
             obscure();
         } else {
             m_pendingObscure = true;
@@ -370,8 +376,8 @@ void QVulkanRenderThread::processEvent(QVulkanRenderThreadEvent *e)
     case QVulkanRenderThreadResizeEvent::Type:
         m_mutex.lock();
         if (!d->m_frameActive) {
-            if (Q_UNLIKELY(debug_render()))
-                qDebug("render thread - resize");
+            if (debug_render())
+                log("render thread - resize");
             resize();
         } else {
             m_pendingResize = true;
@@ -387,8 +393,8 @@ void QVulkanRenderThread::processEvent(QVulkanRenderThreadEvent *e)
         break;
     case QVulkanRenderThreadFrameQueuedEvent::Type:
         m_mutex.lock();
-        if (Q_UNLIKELY(debug_render()))
-            qDebug("render thread - worker ready");
+        if (debug_render())
+            log("render thread - worker ready");
         d->endFrame();
         if (m_sleeping)
             m_stopEventProcessing = true;
@@ -398,8 +404,8 @@ void QVulkanRenderThread::processEvent(QVulkanRenderThreadEvent *e)
     case QVulkanRenderThreadDestroyEvent::Type:
         m_mutex.lock();
         if (!d->m_frameActive) {
-            if (Q_UNLIKELY(debug_render()))
-                qDebug("render thread - destroy");
+            if (debug_render())
+                log("render thread - destroy");
             m_active = false;
             if (m_sleeping)
                 m_stopEventProcessing = true;
@@ -454,8 +460,8 @@ void QVulkanRenderThread::start()
 
 void QVulkanRenderThread::run()
 {
-    if (Q_UNLIKELY(debug_render()))
-        qDebug("render thread - start");
+    if (debug_render())
+        log("render thread - start");
 
     m_sleeping = false;
     m_stopEventProcessing = false;
@@ -466,23 +472,23 @@ void QVulkanRenderThread::run()
 
     while (m_active) {
         if (m_pendingDestroy) {
-            if (Q_UNLIKELY(debug_render()))
-                qDebug("render thread - processing pending destroy");
+            if (debug_render())
+                log("render thread - processing pending destroy");
             m_active = false;
             continue;
         }
         if (m_pendingObscure && !d->m_frameActive) {
             m_pendingObscure = false;
             m_pendingResize = false;
-            if (Q_UNLIKELY(debug_render()))
-                qDebug("render thread - processing pending obscure");
+            if (debug_render())
+                log("render thread - processing pending obscure");
             obscure();
         }
         if (m_pendingResize && !d->m_frameActive) {
             m_pendingResize = false;
             m_pendingUpdate = true;
-            if (Q_UNLIKELY(debug_render()))
-                qDebug("render thread - processing pending resize");
+            if (debug_render())
+                log("render thread - processing pending resize");
             resize();
         }
         if (m_pendingUpdate && !d->m_frameActive) {
@@ -504,8 +510,8 @@ void QVulkanRenderThread::run()
         }
     }
 
-    if (Q_UNLIKELY(debug_render()))
-        qDebug("render thread - exit");
+    if (debug_render())
+        log("render thread - exit");
 }
 
 void QVulkanRenderLoopPrivate::init()
@@ -517,8 +523,8 @@ void QVulkanRenderLoopPrivate::init()
     recreateSwapChain();
 
     m_inited = true;
-    if (Q_UNLIKELY(debug_render()))
-        qDebug("VK window renderer initialized");
+    if (debug_render())
+        log("VK window renderer initialized");
 
     if (m_worker) {
         m_worker->init();
@@ -534,8 +540,8 @@ void QVulkanRenderLoopPrivate::cleanup()
     if (m_worker)
         m_worker->cleanup();
 
-    if (Q_UNLIKELY(debug_render()))
-        qDebug("Stopping VK window renderer");
+    if (debug_render())
+        log("Stopping VK window renderer");
 
     m_inited = false;
 
@@ -556,7 +562,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallbackFunc(VkDebugReportFlagsEXT fl
     Q_UNUSED(object);
     Q_UNUSED(location);
     Q_UNUSED(pUserData);
-    qDebug("DEBUG: %s: %d: %s", pLayerPrefix, messageCode, pMessage);
+    log("DEBUG: %s: %d: %s", pLayerPrefix, messageCode, pMessage);
     return VK_FALSE;
 }
 
@@ -594,8 +600,8 @@ void QVulkanRenderLoopPrivate::createDeviceAndSurface()
 
     uint32_t layerCount = 0;
     f->vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
-    if (Q_UNLIKELY(debug_render()))
-        qDebug("%d instance layers", layerCount);
+    if (debug_render())
+        log("%d instance layers", layerCount);
     std::vector<char *> enabledLayers;
     if (layerCount) {
         std::vector<VkLayerProperties> layerProps(layerCount);
@@ -605,15 +611,17 @@ void QVulkanRenderLoopPrivate::createDeviceAndSurface()
                 enabledLayers.push_back(strdup(p.layerName));
         }
     }
-    if (!enabledLayers.empty())
-        if (Q_UNLIKELY(debug_render()))
-            qDebug() << "enabling instance layers" << enabledLayers;
+    if (debug_render() && !enabledLayers.empty()) {
+        log("enabling %d instance layers", enabledLayers.size());
+        for (auto s : enabledLayers)
+            log("  %s", s);
+    }
 
     m_hasDebug = false;
     uint32_t extCount = 0;
     f->vkEnumerateInstanceExtensionProperties(nullptr, &extCount, nullptr);
-    if (Q_UNLIKELY(debug_render()))
-        qDebug("%d instance extensions", extCount);
+    if (debug_render())
+        log("%d instance extensions", extCount);
     std::vector<char *> enabledExtensions;
     if (extCount) {
         std::vector<VkExtensionProperties> extProps(extCount);
@@ -629,9 +637,11 @@ void QVulkanRenderLoopPrivate::createDeviceAndSurface()
             }
         }
     }
-    if (!enabledExtensions.empty())
-        if (Q_UNLIKELY(debug_render()))
-            qDebug() << "enabling instance extensions" << enabledExtensions;
+    if (debug_render() && !enabledExtensions.empty()) {
+        log("enabling %d instance extensions", enabledExtensions.size());
+        for (auto s : enabledExtensions)
+            log("  %s", s);
+    }
 
     VkInstanceCreateInfo instInfo;
     memset(&instInfo, 0, sizeof(instInfo));
@@ -674,8 +684,8 @@ void QVulkanRenderLoopPrivate::createDeviceAndSurface()
 
     uint32_t devCount = 0;
     f->vkEnumeratePhysicalDevices(m_vkInst, &devCount, nullptr);
-    if (Q_UNLIKELY(debug_render()))
-        qDebug("%d physical devices", devCount);
+    if (debug_render())
+        log("%d physical devices", devCount);
     if (!devCount)
         qFatal("No physical devices");
     // Just pick the first physical device for now.
@@ -685,15 +695,15 @@ void QVulkanRenderLoopPrivate::createDeviceAndSurface()
         qFatal("Failed to enumerate physical devices: %d", err);
 
     f->vkGetPhysicalDeviceProperties(m_vkPhysDev, &m_physDevProps);
-    if (Q_UNLIKELY(debug_render()))
-        qDebug("Device name: %s\nDriver version: %d.%d.%d", m_physDevProps.deviceName,
+    if (debug_render())
+        log("Device name: %s\nDriver version: %d.%d.%d", m_physDevProps.deviceName,
                VK_VERSION_MAJOR(m_physDevProps.driverVersion), VK_VERSION_MINOR(m_physDevProps.driverVersion),
                VK_VERSION_PATCH(m_physDevProps.driverVersion));
 
     layerCount = 0;
     f->vkEnumerateDeviceLayerProperties(m_vkPhysDev, &layerCount, nullptr);
-    if (Q_UNLIKELY(debug_render()))
-        qDebug("%d device layers", layerCount);
+    if (debug_render())
+        log("%d device layers", layerCount);
     enabledLayers.clear();
     if (layerCount) {
         std::vector<VkLayerProperties> layerProps(layerCount);
@@ -706,14 +716,16 @@ void QVulkanRenderLoopPrivate::createDeviceAndSurface()
                 enabledLayers.push_back(strdup(p.layerName));
         }
     }
-    if (!enabledLayers.empty())
-        if (Q_UNLIKELY(debug_render()))
-            qDebug() << "enabling device layers" << enabledLayers;
+    if (debug_render() && !enabledLayers.empty()) {
+        log("enabling %d device layers", enabledLayers.size());
+        for (auto s : enabledLayers)
+            log("  %s", s);
+    }
 
     extCount = 0;
     f->vkEnumerateDeviceExtensionProperties(m_vkPhysDev, nullptr, &extCount, nullptr);
-    if (Q_UNLIKELY(debug_render()))
-        qDebug("%d device extensions", extCount);
+    if (debug_render())
+        log("%d device extensions", extCount);
     enabledExtensions.clear();
     if (extCount) {
         std::vector<VkExtensionProperties> extProps(extCount);
@@ -726,9 +738,11 @@ void QVulkanRenderLoopPrivate::createDeviceAndSurface()
             }
         }
     }
-    if (!enabledExtensions.empty())
-        if (Q_UNLIKELY(debug_render()))
-            qDebug() << "enabling device extensions" << enabledExtensions;
+    if (debug_render() && !enabledExtensions.empty()) {
+        log("enabling %d device extensions", enabledExtensions.size());
+        for (auto s : enabledExtensions)
+            log("  %s", s);
+    }
 
     uint32_t queueCount = 0;
     f->vkGetPhysicalDeviceQueueFamilyProperties(m_vkPhysDev, &queueCount, nullptr);
@@ -736,8 +750,8 @@ void QVulkanRenderLoopPrivate::createDeviceAndSurface()
     f->vkGetPhysicalDeviceQueueFamilyProperties(m_vkPhysDev, &queueCount, queueFamilyProps.data());
     int gfxQueueFamilyIdx = -1;
     for (int i = 0; i < queueFamilyProps.size(); ++i) {
-        if (Q_UNLIKELY(debug_render()))
-            qDebug("queue family %d: flags=0x%x count=%d", i, queueFamilyProps[i].queueFlags, queueFamilyProps[i].queueCount);
+        if (debug_render())
+            log("queue family %d: flags=0x%x count=%d", i, queueFamilyProps[i].queueFlags, queueFamilyProps[i].queueCount);
         bool ok = (queueFamilyProps[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0;
         ok |= physicalDeviceSupportsPresent(i);
         if (ok) {
@@ -792,8 +806,8 @@ void QVulkanRenderLoopPrivate::createDeviceAndSurface()
     f->vkGetPhysicalDeviceMemoryProperties(m_vkPhysDev, &m_vkPhysDevMemProps);
     for (uint32_t i = 0; i < m_vkPhysDevMemProps.memoryTypeCount; ++i) {
         const VkMemoryType *memType = m_vkPhysDevMemProps.memoryTypes;
-        if (Q_UNLIKELY(debug_render()))
-            qDebug("memtype %d: flags=0x%x", i, memType[i].propertyFlags);
+        if (debug_render())
+            log("memtype %d: flags=0x%x", i, memType[i].propertyFlags);
         // Find a host visible, host coherent memtype. If there is one that is
         // cached as well (in addition to being coherent), prefer that.
         if (memType[i].propertyFlags & (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
@@ -804,8 +818,8 @@ void QVulkanRenderLoopPrivate::createDeviceAndSurface()
             }
         }
     }
-    if (Q_UNLIKELY(debug_render()))
-        qDebug("picked memtype %d for host visible memory", m_hostVisibleMemIndex);
+    if (debug_render())
+        log("picked memtype %d for host visible memory", m_hostVisibleMemIndex);
 
     m_colorFormat = VK_FORMAT_B8G8R8A8_UNORM;
 }
@@ -987,8 +1001,8 @@ void QVulkanRenderLoopPrivate::recreateSwapChain()
     swapChainInfo.clipped = true;
     swapChainInfo.oldSwapchain = oldSwapChain;
 
-    if (Q_UNLIKELY(debug_render()))
-        qDebug("creating new swap chain of %d buffers, size %dx%d", reqBufferCount, bufferSize.width, bufferSize.height);
+    if (debug_render())
+        log("creating new swap chain of %d buffers, size %dx%d", reqBufferCount, bufferSize.width, bufferSize.height);
 
     VkResult err = vkCreateSwapchainKHR(m_vkDev, &swapChainInfo, nullptr, &m_swapChain);
     if (err != VK_SUCCESS)
@@ -1009,8 +1023,8 @@ void QVulkanRenderLoopPrivate::recreateSwapChain()
     if (err != VK_SUCCESS)
         qFatal("Failed to get swapchain images: %d", err);
 
-    if (Q_UNLIKELY(debug_render()))
-        qDebug("actual swap chain buffer count: %d", m_swapChainBufferCount);
+    if (debug_render())
+        log("actual swap chain buffer count: %d", m_swapChainBufferCount);
 
     for (uint32_t i = 0; i < m_swapChainBufferCount; ++i) {
         VkImageViewCreateInfo imgViewInfo;
@@ -1109,17 +1123,17 @@ void QVulkanRenderLoopPrivate::recreateSwapChain()
 
     VkMemoryRequirements dsMemReq;
     f->vkGetImageMemoryRequirements(m_vkDev, m_ds, &dsMemReq);
-    uint memTypeIndex = 0;
+    unsigned long memTypeIndex = 0;
     if (dsMemReq.memoryTypeBits)
-        memTypeIndex = qCountTrailingZeroBits(dsMemReq.memoryTypeBits);
+        _BitScanForward64(&memTypeIndex, dsMemReq.memoryTypeBits);
 
     VkMemoryAllocateInfo memInfo;
     memset(&memInfo, 0, sizeof(memInfo));
     memInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     memInfo.allocationSize = dsMemReq.size;
-    memInfo.memoryTypeIndex = memTypeIndex;
-    if (Q_UNLIKELY(debug_render()))
-        qDebug("allocating %lu bytes for depth-stencil", memInfo.allocationSize);
+    memInfo.memoryTypeIndex = uint32_t(memTypeIndex);
+    if (debug_render())
+        log("allocating %lu bytes for depth-stencil", memInfo.allocationSize);
 
     err = f->vkAllocateMemory(m_vkDev, &memInfo, nullptr, &m_dsMem);
     if (err != VK_SUCCESS)
@@ -1174,16 +1188,14 @@ void QVulkanRenderLoopPrivate::ensureFrameCmdBuf(int frame, int subIndex)
     m_frameCmdBufRecording[frame] = true;
 }
 
-QElapsedTimer t;
-
 bool QVulkanRenderLoopPrivate::beginFrame()
 {
     Q_ASSERT(!m_frameActive);
     m_frameActive = true;
 
     if (m_frameFenceActive[m_currentFrame]) {
-        if (Q_UNLIKELY(debug_render()))
-            qDebug("wait fence %p", m_frameFence[m_currentFrame]);
+        if (debug_render())
+            log("wait fence %p", m_frameFence[m_currentFrame]);
         f->vkWaitForFences(m_vkDev, 1, &m_frameFence[m_currentFrame], true, UINT64_MAX);
         f->vkResetFences(m_vkDev, 1, &m_frameFence[m_currentFrame]);
     }
@@ -1203,9 +1215,12 @@ bool QVulkanRenderLoopPrivate::beginFrame()
         }
     }
 
-    if (Q_UNLIKELY(debug_render()))
-        qDebug("current swapchain buffer is %d, current frame is %d, elapsed since last %lld ms",
-               m_currentSwapChainBuffer, m_currentFrame, t.restart());
+    if (debug_render()) {
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - m_beginFrameTimePoint);
+        log("current swapchain buffer is %d, current frame is %d, elapsed since last %lld ms",
+            m_currentSwapChainBuffer, m_currentFrame, elapsed);
+        m_beginFrameTimePoint = std::chrono::steady_clock::now();
+    }
 
     m_frameFenceActive[m_currentFrame] = true;
     ensureFrameCmdBuf(m_currentFrame, 0);

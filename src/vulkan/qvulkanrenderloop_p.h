@@ -40,6 +40,7 @@
 #include "qvulkanrenderloop.h"
 #include <QObject>
 #include <queue>
+#include <chrono>
 #include <thread>
 #include <mutex>
 #include <condition_variable>
@@ -142,6 +143,8 @@ public:
 
     uint32_t m_currentSwapChainBuffer;
     uint32_t m_currentFrame;
+
+    std::chrono::time_point<std::chrono::steady_clock> m_beginFrameTimePoint;
 
 #if defined(Q_OS_WIN)
     PFN_vkCreateWin32SurfaceKHR vkCreateWin32SurfaceKHR;

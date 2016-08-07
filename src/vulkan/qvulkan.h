@@ -41,8 +41,6 @@
 
 #if defined(Q_OS_WIN)
 #define VK_USE_PLATFORM_WIN32_KHR
-#elif defined(Q_OS_LINUX)
-#define VK_USE_PLATFORM_XCB_KHR
 #endif
 
 #define VK_NO_PROTOTYPES

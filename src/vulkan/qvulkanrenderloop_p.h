@@ -91,7 +91,6 @@ public:
                          VkAccessFlags srcAccessMask, VkAccessFlags dstAccessMask, bool ds = false);
 
     QVulkanRenderLoop *q;
-    QWindow *m_window;
     QVulkanRenderLoop::Flags m_flags = 0;
     int m_framesInFlight = 1;
     QVulkanRenderThread *m_thread = nullptr;

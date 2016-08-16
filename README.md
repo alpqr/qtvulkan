@@ -96,13 +96,7 @@ private:
 
 ================================
 
-Currently only Windows and Linux (X11) are supported, and only
-Windows has been tested in practice. Other WSIs will get added later on.
+Currently only Windows and Linux (X11) are supported, and only Windows has been
+tested in practice. Other WSIs will get added later on.
 
-Note: NVIDIA drivers older than 368 are not recommended. For example, 365 was
-unable to provide vsync and was always running unthrottled.
-
-Note: Looking at the debug output with NVIDIA 368 shows that vkQueuePresentKHR
-always blocks and waits for up to 16 ms (vsync). This is fairly odd (since it
-kills parallelism and our chance to go on preparing multiple frames on the same
-thread before blocking), and is considered a driver issue for now.
+Tested on NVIDIA 368.xx and AMD Radeon 16.7.3.

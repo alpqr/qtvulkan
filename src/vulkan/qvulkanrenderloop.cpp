@@ -233,7 +233,7 @@ VkImageView QVulkanRenderLoop::depthStencilImageView() const
 
 VkFormat QVulkanRenderLoop::depthStencilFormat() const
 {
-    return VK_FORMAT_D24_UNORM_S8_UINT;
+    return d->m_dsFormat;
 }
 
 QVulkanRenderLoopPrivate::QVulkanRenderLoopPrivate(QVulkanRenderLoop *q_ptr, QWindow *window)
@@ -809,7 +809,25 @@ void QVulkanRenderLoopPrivate::createDeviceAndSurface()
     if (Q_UNLIKELY(debug_render()))
         qDebug("picked memtype %d for host visible memory", m_hostVisibleMemIndex);
 
-    m_colorFormat = VK_FORMAT_B8G8R8A8_UNORM;
+    m_colorFormat = VK_FORMAT_B8G8R8A8_UNORM; // will get changed based when setting up the swapchain
+
+    const VkFormat dsFormatCandidates[] = {
+        VK_FORMAT_D24_UNORM_S8_UINT,
+        VK_FORMAT_D32_SFLOAT_S8_UINT,
+        VK_FORMAT_D16_UNORM_S8_UINT
+    };
+    const int dsFormatCandidateCount = sizeof(dsFormatCandidates) / sizeof(VkFormat);
+    int dsFormatIdx = 0;
+    while (dsFormatIdx < dsFormatCandidateCount) {
+        m_dsFormat = dsFormatCandidates[dsFormatIdx];
+        VkFormatProperties fmtProp;
+        f->vkGetPhysicalDeviceFormatProperties(m_vkPhysDev, m_dsFormat, &fmtProp);
+        if (fmtProp.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
+            break;
+        ++dsFormatIdx;
+    }
+    if (dsFormatIdx == dsFormatCandidateCount)
+        qWarning("Failed to find an optimal depth-stencil format");
 }
 
 void QVulkanRenderLoopPrivate::releaseDeviceAndSurface()
@@ -1110,7 +1128,7 @@ void QVulkanRenderLoopPrivate::recreateSwapChain()
     memset(&imgInfo, 0, sizeof(imgInfo));
     imgInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imgInfo.imageType = VK_IMAGE_TYPE_2D;
-    imgInfo.format = VK_FORMAT_D24_UNORM_S8_UINT;
+    imgInfo.format = m_dsFormat;
     imgInfo.extent.width = bufferSize.width;
     imgInfo.extent.height = bufferSize.height;
     imgInfo.extent.depth = 1;
@@ -1154,7 +1172,7 @@ void QVulkanRenderLoopPrivate::recreateSwapChain()
     imgViewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     imgViewInfo.image = m_ds;
     imgViewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    imgViewInfo.format = VK_FORMAT_D24_UNORM_S8_UINT;
+    imgViewInfo.format = m_dsFormat;
     imgViewInfo.components.r = VK_COMPONENT_SWIZZLE_R;
     imgViewInfo.components.g = VK_COMPONENT_SWIZZLE_G;
     imgViewInfo.components.b = VK_COMPONENT_SWIZZLE_B;

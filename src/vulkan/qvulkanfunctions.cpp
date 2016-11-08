@@ -68,11 +68,14 @@ QVulkanFunctions *QVulkanFunctions::instance()
 }
 
 QVulkanFunctionsPrivate::QVulkanFunctionsPrivate(QVulkanFunctions *q_ptr)
-    : q(q_ptr),
-      m_lib(QStringLiteral("vulkan-1"))
+    : q(q_ptr)
 {
+    m_lib.setFileName(QStringLiteral("vulkan-1"));
+    if (qEnvironmentVariableIsSet("QT_VULKAN_LIB"))
+        m_lib.setFileName(QString::fromUtf8(qgetenv("QT_VULKAN_LIB")));
+
     if (!m_lib.load())
-        qFatal("Failed to load vulkan-1");
+        qFatal("Failed to load %s", qPrintable(m_lib.fileName()));
 
     q->vkCreateInstance = reinterpret_cast<PFN_vkCreateInstance>(m_lib.resolve("vkCreateInstance"));
     q->vkDestroyInstance = reinterpret_cast<PFN_vkDestroyInstance>(m_lib.resolve("vkDestroyInstance"));

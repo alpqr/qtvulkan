@@ -1,3 +1,10 @@
+Note: As of 02/2017 this repository is being obsoleted by Qt 5.10's upcoming built-in Vulkan support:
+
+https://codereview.qt-project.org/#/c/184751/
+https://codereview.qt-project.org/#/c/185007/
+
+==================================
+
 This is the Qt Vulkan test bed.
 
 The goal is to experiment with basic - but efficient - Vulkan enablers,
